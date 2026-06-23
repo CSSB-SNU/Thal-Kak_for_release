@@ -1,0 +1,8 @@
+num-trunk-samples: 1
+num-diffn-samples: 5
+num-diffn-timesteps: 200
+recycle-msa-subsample: 0   # chai's per-recycle subsampler: 0 = full MSA, any positive value = subsample to 4096 rows (chai-hardcoded; value magnitude ignored)
+num-trunk-recycles: 3
+constraint-path:
+use-esm-embeddings: True
+fasta-names-as-cif-chains: False

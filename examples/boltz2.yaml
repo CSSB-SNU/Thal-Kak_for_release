@@ -1,0 +1,6 @@
+n_samples: 5
+no_kernels: True
+output_format: pdb
+recycling_steps: 3
+sampling_steps: 200
+subsample_msa: True   # boltz's native MSA subsampler (random 1024 rows per recycle); omit/False = full MSA

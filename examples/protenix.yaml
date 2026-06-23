@@ -1,0 +1,7 @@
+pairing_db: uniref100
+N_sample: 5
+N_step: 200
+N_cycle: 10
+model_name: protenix-v2
+use_tfg_guidance: True
+data.msa.min_size.test:   # protenix subsamples the MSA by default (random depth per recycle). null/omit = native subsampling. Set to 16384 (== featurization cap, max usable depth) to force full MSA on every recycle; raw MSAs deeper than 16384 are truncated to the first 16384 rows at featurization regardless.

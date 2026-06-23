@@ -1,0 +1,18 @@
+# ESMFold2 inference config (consumed by Structure/script/esmfold2/run_esmfold2.py).
+# Argument names match esm.ESMFold2InputBuilder.fold() / ESMFold2Model.forward().
+
+# Model variant: "biohub/ESMFold2" (full, supports MSA) or "biohub/ESMFold2-Fast"
+model_variant: "biohub/ESMFold2"
+
+# MSA is only consumed by the full variant. Set false (or run -Fast) to skip
+# the merged paired+unpaired a3m construction.
+use_msa: true
+
+# Trunk refinement iterations.
+num_loops: 3
+
+# Diffusion sampling steps per sample.
+num_sampling_steps: 50
+
+# Number of samples produced per seed (each becomes one PDB output).
+num_diffusion_samples: 5
