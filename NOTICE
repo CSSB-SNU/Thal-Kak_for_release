@@ -19,6 +19,12 @@ prominent notice has been added to the affected files (Apache-2.0 Sec. 4(b)).
    - MODIFIED by CSSB Thal-Kak (2026):
        * protenix/model/sample_confidence.py — added `calculate_chain_pair_pae`
          and wired chain-pair PAE into summary_confidence.
+       * protenix/data/esm/compute_esm.py — replaced the fair-esm backend with
+         HuggingFace transformers for ESM2 embeddings (to avoid the `esm`
+         namespace clash with ESMFold2's EvolutionaryScale esm package in the
+         unified environment).
+       * protenix/data/inference/infer_dataloader.py — relaxed
+         `max_template_date` (2021-09-30 -> 2100-01-10).
    - Protenix itself incorporates code referring to OneFlow, FastFold, and
      OpenFold, all licensed under Apache License 2.0.
 

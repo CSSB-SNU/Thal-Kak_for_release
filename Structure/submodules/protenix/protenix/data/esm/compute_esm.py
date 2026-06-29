@@ -11,6 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modifications by CSSB Thal-Kak (2026):
+#   - Replaced the fair-esm backend with HuggingFace transformers for ESM2
+#     embeddings (HF AutoModel/AutoTokenizer; drop-in FastaBatchedDataset and
+#     batch converter; hidden-states extraction).
+#     Reason: in the unified env, fair-esm and the EvolutionaryScale `esm`
+#     package (required by ESMFold2) both claim the top-level `esm` namespace
+#     and cannot coexist. ESMFold2 needs the EvolutionaryScale `esm`, so the
+#     fair-esm import here was removed to resolve the clash.
+# The above modifications are likewise licensed under the Apache License 2.0.
 
 import argparse
 import os
@@ -18,8 +28,9 @@ import os
 import pandas as pd
 import torch
 from tqdm.auto import tqdm
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer  # CSSB Thal-Kak (2026): HF transformers backend (replaces `from esm import ...`); avoids the `esm` namespace clash with ESMFold2's EvolutionaryScale esm
 
+# CSSB Thal-Kak (2026): config keyed by HuggingFace `hf_id` instead of fair-esm `model_path`.
 ESM_CONFIG = {
     "esm2-3b": {
         "type": "esm2",

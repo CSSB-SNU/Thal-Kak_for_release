@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modifications by CSSB Thal-Kak (2026):
+#   - Relaxed `max_template_date` (2021-09-30 -> 2100-01-10) to allow
+#     templates of any release date.
+# The above modifications are likewise licensed under the Apache License 2.0.
 
 import json
 import logging
@@ -105,7 +110,7 @@ class InferenceDataset(Dataset):
                 template_cache_dir=configs.data.template.prot_template_cache_dir,
                 max_hits=4,
                 kalign_binary_path=configs.data.template.kalign_binary_path,
-                max_template_date="2100-01-10",
+                max_template_date="2100-01-10",  # CSSB Thal-Kak (2026): was "2021-09-30"
                 release_dates_path=configs.data.template.release_dates_path,
                 obsolete_pdbs_path=configs.data.template.obsolete_pdbs_path,
                 _shuffle_top_k_prefiltered=None,
