@@ -11,6 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Modifications by CSSB Thal-Kak (2026):
+#   - Added `calculate_chain_pair_pae` and wired chain-pair PAE
+#     (chain_pair_pae_mean / chain_pair_pae_min) into summary_confidence.
+# The above modifications are likewise licensed under the Apache License 2.0.
 
 from typing import Any, Optional, Union
 
