@@ -12,6 +12,10 @@ by the predictor's own confidence, and relaxes them.
 
 ## Pipeline overview
 
+<div align="center">
+  <img alt="Thal-Kak pipeline scheme" src="assets/Thal-kak_scheme.png" width="800">
+</div>
+
 Three modular stages, each runnable on its own through the `thalkak` CLI:
 
 - **MSA generation** — turns the input FASTA + stoichiometry into a normalized
