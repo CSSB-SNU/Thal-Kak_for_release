@@ -16,7 +16,7 @@ FASTA + stoi  ──►  [MSA]  ──►  data yaml  ──►  Structure  ─�
 
 RNA / DNA handling is automatic, regardless of `--msa`:
 - Each FASTA record is checked against the nucleic-acid alphabet (`{A, C, G, T, U}`); records that match are routed out of the protein path.
-- **RNA chains** → NHMMER-based MSA search against `rna_msa_db_dir`, output as a3m.
+- **RNA chains** → NHMMER-based MSA search against the local RNA MSA database (`MSA/script/RNA_MSA_search/db`, built by `prepare_db.sh`), output as a3m.
 - **DNA chains** → no MSA; the FASTA is referenced directly in the data yaml.
 
 ## CLI

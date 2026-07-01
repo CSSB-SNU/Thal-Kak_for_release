@@ -1,7 +1,0 @@
-# Thal-Kak configuration
-# Edit the path below to match your environment.
-
-# Local RNA MSA database directory (only needed for RNA targets; see
-# MSA/script/RNA_MSA_search). Each structure-prediction model downloads its
-# own weights to its default cache location on first run.
-rna_msa_db_dir: /path/to/rna_msa_db

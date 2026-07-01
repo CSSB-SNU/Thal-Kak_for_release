@@ -1,6 +1,8 @@
 #!/bin/bash
 # Build the local RNA MSA databases (Rfam + RNAcentral) used by msa_gen.py.
-# Point `rna_msa_db_dir` in config.yaml at the resulting ./db directory.
+# Run this script from its own directory (MSA/script/RNA_MSA_search); it writes
+# the databases to ./db there, which is exactly where msa_generation.py looks
+# for them.
 #
 # Requirements on PATH: mmseqs, makehmmerdb, esl-sfetch (HMMER / easel), wget.
 set -e

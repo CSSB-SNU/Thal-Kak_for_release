@@ -112,16 +112,21 @@ from `environment.yml` plus the `--no-deps` packages in
 `requirements-nodeps.txt`. See the comments at the top of `install.sh` for the
 exact steps.
 
-### Configuration
-Edit `config.yaml`:
+### RNA MSA database (only for RNA targets)
 
-| Key | Used by |
-|-----|---------|
-| `rna_msa_db_dir` | Local RNA MSA database (only needed for RNA targets). |
+RNA targets need a local RNA MSA database (Rfam + RNAcentral). Build it once
+with the provided script, which downloads, clusters, and indexes the databases
+into `MSA/script/RNA_MSA_search/db` — exactly where the pipeline looks for them:
 
-```yaml
-rna_msa_db_dir: /path/to/rna_msa_db
+```bash
+conda activate thalkak_release
+cd MSA/script/RNA_MSA_search
+bash prepare_db.sh
 ```
+
+The tools it uses (`mmseqs`, HMMER) are already in the conda environment. The
+RNAcentral download and clustering is large and can take hours. Skip this step
+entirely if you only run protein targets.
 
 Each structure-prediction model downloads its own weights to its default cache
 location on first run (e.g. `~/.boltz` for Boltz-2, `~/.cache/huggingface` for

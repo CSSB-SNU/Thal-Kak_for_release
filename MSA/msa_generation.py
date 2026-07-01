@@ -5,8 +5,6 @@ from MSA.script.colab_msa_template_search.colab_a3m_to_yaml import (
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-with open(os.path.join(ROOT, "config.yaml")) as _f:
-    CONFIG = yaml.safe_load(_f)
 
 
 def msa_generation(args):
@@ -91,7 +89,9 @@ def msa_generation(args):
         from MSA.script.RNA_MSA_search.sto_to_a3m import convert as sto_to_a3m
 
         rna_msa_script = os.path.join(ROOT, "MSA", "script", "RNA_MSA_search")
-        rna_db_dir = CONFIG["rna_msa_db_dir"]
+        # Local RNA MSA database built by prepare_db.sh, which always writes to
+        # ./db inside RNA_MSA_search (see README / that script).
+        rna_db_dir = os.path.join(rna_msa_script, "db")
         for i, na in enumerate(na_chains):
             na_fa_path = os.path.join(msa_dir, f"{target_name}_na_{i}.fa")
             with open(na_fa_path, "w") as f:
