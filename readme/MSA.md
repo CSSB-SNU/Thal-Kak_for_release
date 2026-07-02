@@ -1,6 +1,6 @@
 # MSA
 
-MSA and template generation — stage 1 of the Thal-Kak pipeline. Takes a CASP-style FASTA and stoichiometry string, and produces the per-chain multiple sequence alignments, RNA/DNA chain handling, AF2 template hits, and the **data yaml** that every downstream stage consumes.
+MSA and template generation is stage 1 of the Thal-Kak pipeline. It takes a CASP-style FASTA and stoichiometry string and produces per-chain multiple sequence alignments, AF2 template hits, and the **data yaml** that every downstream stage consumes. RNA and DNA chains are handled automatically.
 
 ## Where this stage sits
 
@@ -45,7 +45,7 @@ Under `<output_dir>/msa/<msa_method>/`:
 | `<target>_na_<i>.a3m` | each RNA chain |
 | `<target>_na_<i>.fa` | each DNA chain |
 | `<pdb>_<chain>.cif` | AF2 template hits, when found |
-| `method_log.yaml` | `{msa, seq, stoi, templates}` — inherited by Structure |
+| `method_log.yaml` | `{msa, seq, stoi, templates}`; inherited by Structure |
 
 And one **data yaml** at `<output_dir>/<target>.yaml` matching the [data yaml schema](Structure.md#data-yaml-schema). The header reminds you to fill in `job_name`, `output_dir`, and `seed` before running structure prediction; in `thalkak full` mode these are filled in automatically.
 
@@ -57,4 +57,4 @@ Each call writes / checks `method_log.yaml`. If `(msa, seq, stoi)` matches a pre
 
 - Stoichiometry letters do not have to start at `A`; they are paired positionally with FASTA records.
 - Chain IDs in downstream structure outputs are assigned in the order chains appear in the data yaml (see the templates-field section of [Structure.md](Structure.md)).
-- The ColabFold raw a3m contains a header line like `#L1,L2  C1,C2` that must be removed when hand-preparing a3m. The auto path handles this for you.
+- The ColabFold raw a3m contains a header line like `#L1,L2  C1,C2` that must be removed when hand-preparing a3m. The pipeline handles this for you automatically.

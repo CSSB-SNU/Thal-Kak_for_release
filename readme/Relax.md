@@ -1,6 +1,6 @@
 # Relax
 
-Relaxation — the final stage of the Thal-Kak pipeline. Given a directory of
+Relaxation is the final stage of the Thal-Kak pipeline. Given a directory of
 decoy PDBs, it writes relaxed copies into `<decoy_dir>/relaxed/<method>/`. In
 `full` pipeline mode this stage relaxes the per-job top-5 (selected by the
 model's own confidence) in place.
@@ -32,18 +32,19 @@ thalkak relax --decoy_dir <dir of decoy PDBs> --relax amber
 - **Input**: `<decoy_dir>/*.pdb`
 - **Output**: `<decoy_dir>/relaxed/<method>/`
   - `<name>_relaxed_amber_<solvent>.pdb` (amber) or `<name>_unrelaxed.pdb` (none)
-  - `energies.yaml` — `{ <decoy_basename>: { E_init, E_min, E_final, tool } }` (amber writes per-decoy `*.energy.yaml`, merged into `energies.yaml` by the orchestrator)
+  - `energies.yaml`: `{ <decoy_basename>: { E_init, E_min, E_final, tool } }` (amber writes per-decoy `*.energy.yaml`, merged into `energies.yaml` by the orchestrator)
 
 ## What `amber` does
 
-Adapted from AlphaFold2's relaxation (`alphafold.relax`) with implicit solvent
-(instead of AF2's vacuum) and pLDDT-dependent coordinate restraints —
-high-confidence regions are held tight, low-confidence regions move more. Runs
-in the unified `thalkak` conda env (OpenMM is bundled there).
+The `amber` method is adapted from AlphaFold2's relaxation (`alphafold.relax`),
+with implicit solvent (instead of AF2's vacuum) and pLDDT-dependent coordinate
+restraints. High-confidence
+regions are held tight, and low-confidence regions move more. It runs in the
+unified `thalkak` conda env (OpenMM is bundled there).
 
 ## Caveats
 
-- Point at the flattened `common/` directory (or a top-5 directory) — **not**
+- Point at the flattened `common/` directory (or a top-5 directory), **not**
   the raw `seed_*/` subdirectories produced by some predictors.
 - `relax=none` still writes files (with an `_unrelaxed` suffix) so downstream
   consumers see a consistent input contract.

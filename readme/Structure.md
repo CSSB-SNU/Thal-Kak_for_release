@@ -1,6 +1,6 @@
 # Structure
 
-Structure prediction — stage 2 of the Thal-Kak pipeline. Consumes the data yaml emitted by [MSA](MSA.md) plus a model-specific config yaml, runs the chosen predictor across the requested seeds, computes per-seed/per-sample confidence, and stages everything into a flattened `common/` directory consumed by the downstream relaxation stage.
+Structure prediction is stage 2 of the Thal-Kak pipeline. It consumes the data yaml emitted by [MSA](MSA.md) plus a model-specific config yaml, runs the chosen predictor across the requested seeds, computes per-seed/per-sample confidence, and stages everything into a flattened `common/` directory consumed by the downstream relaxation stage.
 
 ## Where this stage sits
 
@@ -29,17 +29,17 @@ thalkak structure --model boltz2 \
 
 ## Inputs
 
-- `--data_config`: data yaml. The fields `job_name`, `output_dir`, and `seed` must be filled in. `seed` may be a single int or a list of ints. See [Data yaml schema](#data-yaml-schema).
+- `--data_config`: data yaml, produced by the [MSA](MSA.md) stage (`thalkak msa` writes `<output_dir>/<target>.yaml`, e.g. `examples/sample/T1201.yaml`). The fields `job_name`, `output_dir`, and `seed` must be filled in. `seed` may be a single int or a list of ints. See [Data yaml schema](#data-yaml-schema).
 - `--model_config`: per-model yaml. Defaults are in `examples/{boltz2,chai1,protenix,esmfold2}.yaml`. The `full` pipeline picks the matching default automatically when `--model_config` is omitted. See [Model yaml schemas](#model-yaml-schemas).
 
 ## Outputs
 
 Under `<output_dir>/<model>_results_<target>_<job_name>[_timestamp]/`:
 
-- `common/` — flattened directory with all decoy PDBs, the per-method confidence CSV (e.g. `<target>_results_summary.csv` with each backend's native scoring like `ranking_score`), PAE / pLDDT PNGs, and `method_log.yaml` (inherited from MSA, with `structure: <model>` appended). **This is the directory that top-5 selection and `relax` are pointed at.**
-- Model-native sub-directories preserved as the upstream tools wrote them (e.g. `seed_*/predictions/` for Protenix, etc.).
+- `common/`: a flattened directory holding all decoy PDBs, the per-method confidence CSV (`<target>_results_summary.csv`), PAE / pLDDT PNGs, and `method_log.yaml`. The confidence CSV holds each backend's own scores, such as `ranking_score`. The `method_log.yaml` here is inherited from MSA, with `structure: <model>` appended. **This is the directory that top-5 selection and `relax` are pointed at.**
+- Model-native sub-directories are preserved in each upstream tool's original layout (e.g. `seed_*/predictions/` for Protenix).
 
-Chain IDs in the output PDBs are assigned by cycling copies before entities — copy 1 of every entity in `a3m` order, then copy 2 of every entity, and so on (e.g. with entities `[E1: copy=3, E2: copy=2]`, chain order is `E1, E2, E1, E2, E1`).
+Chain IDs in the output PDBs are assigned by cycling copies before entities: copy 1 of every entity in `a3m` order, then copy 2 of every entity, and so on (e.g. with entities `[E1: copy=3, E2: copy=2]`, chain order is `E1, E2, E1, E2, E1`).
 
 If the result root already exists, a timestamp suffix (`_YYYY_MM_DD_HH_MM_SS`) is appended so reruns don't clobber prior runs.
 
@@ -49,8 +49,8 @@ The data yaml is produced by the [MSA](MSA.md) stage and consumed by every Struc
 
 ```yaml
 a3m:
-- paired_path: str(AF3-like a3m Path) | null
-  unpaired_path: str(AF3-like a3m Path) | null
+- paired_path: str(AlphaFold3-style a3m Path) | null
+  unpaired_path: str(AlphaFold3-style a3m Path) | null
   copy: int
   type: str(protein|dna|rna)
 - ...
@@ -128,7 +128,7 @@ AAAAAAAAAAAAAAAAAAAAA---------------------
 |<-----A chain----->||<-----B chain----->|
 ```
 
-The **paired MSA for sequence A** keeps only A-chain information — strip the aligned B-chain region:
+The **paired MSA for sequence A** keeps only A-chain information, with the aligned B-chain region stripped:
 
 ```
 A_paired_MSA.a3m
@@ -191,6 +191,11 @@ The pipeline ships default model yamls under `examples/{boltz2,chai1,protenix,es
 
 ```yaml
 n_samples: int
+no_kernels: bool          # default: True. True disables Boltz's optimized (trifast) kernels; False uses them (faster / less memory, needs trifast installed)
+output_format: str        # pdb | mmcif
+recycling_steps: int      # default: 3
+sampling_steps: int       # default: 200
+subsample_msa: bool       # default: False. True enables Boltz's native MSA subsampler (random 1024 rows per recycle); omit/False = full MSA
 constraints (Optional):
   - bond:
       atom1: [CHAIN_ID, RES_IDX, ATOM_NAME]
@@ -211,6 +216,11 @@ Example:
 
 ```yaml
 n_samples: 5
+no_kernels: True
+output_format: pdb
+recycling_steps: 3
+sampling_steps: 200
+subsample_msa: True
 constraints:
   - pocket:
       binder: C
@@ -259,14 +269,15 @@ See the [Chai-1 official README](https://github.com/chaidiscovery/chai-lab/blob/
 <summary><b>Protenix</b></summary>
 
 ```yaml
-model_name: str           # Protenix model name (e.g. protenix_base_20250630_v1.0.0)
+model_name: str           # Protenix model name (e.g. protenix-v2)
 N_cycle: int              # number of recycling iterations
 N_sample: int             # number of diffusion samples
 N_step: int               # diffusion steps per sample
 use_tfg_guidance: bool    # enable Training-Free Guidance (TFG) sampling
+data.msa.min_size.test: int | null   # Optional. MSA subsampling: null/omit = Protenix native per-recycle subsampling; set 16384 (featurization cap) to force full MSA (raw MSAs deeper than 16384 are truncated at featurization)
 ```
 
-**`use_tfg_guidance`** — when `True`, the runner appends `--use_tfg_guidance` to Protenix's inference command, which switches on Protenix's Training-Free Guidance pass. TFG refines diffusion sampling without retraining the model, at the cost of extra inference time per sample. Leave `False` for vanilla sampling.
+**`use_tfg_guidance`**: when `True`, the runner appends `--use_tfg_guidance` to Protenix's inference command, which switches on Protenix's Training-Free Guidance pass. TFG refines diffusion sampling without retraining the model, at the cost of extra inference time per sample. Leave `False` for vanilla sampling.
 
 </details>
 
@@ -281,10 +292,10 @@ num_sampling_steps: int     # diffusion sampling steps per sample
 num_diffusion_samples: int  # samples produced per seed (each becomes one PDB)
 ```
 
-**Note:** ESMFold2 is language-model based — the `-Fast` variant (or `use_msa: false`) runs MSA-free. Argument names match `esm.ESMFold2InputBuilder.fold()` / `ESMFold2Model.forward()`.
+**Note:** ESMFold2 is language-model based. The `-Fast` variant (or `use_msa: false`) runs MSA-free. Argument names match `esm.ESMFold2InputBuilder.fold()` / `ESMFold2Model.forward()`.
 
 </details>
 
 ## Caveats
 
-- The timestamp-suffix on rerun is intentional — a Relax stage pointed at a previous result root keeps working while a new run is in flight.
+- The timestamp-suffix on rerun is intentional. A Relax stage pointed at a previous result root keeps working while a new run is in flight.
