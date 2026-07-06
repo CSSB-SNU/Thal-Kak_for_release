@@ -50,13 +50,28 @@ def msa_generation(args):
             ):
                 skip_msa = True
 
+        # The main colab a3m; its `#lengths\tcounts` header carries the
+        # stoichiometry that split_colab_a3m_write_yaml reads (the per-group
+        # `_msa_chains_` files have no such header).
+        main_a3m = os.path.join(msa_dir, f"{target_name}.a3m")
         if skip_msa:
             print(
                 "MSA already generated with the same parameters, skipping MSA generation."
             )
-            output_msa = existing_a3m[0]
+            output_msa = main_a3m
             output_yaml = split_colab_a3m_write_yaml(output_msa)
         else:
+            # colabfold reloads {target}.pickle (which caches
+            # query_seqs_cardinality) whenever it exists, so its a3m header would
+            # keep the previous stoichiometry. Drop the target's colab cache and
+            # a3m outputs before regenerating; the RNA `_na_` a3m is handled
+            # separately below.
+            for stale in [
+                main_a3m,
+                os.path.join(msa_dir, f"{target_name}.pickle"),
+            ] + glob.glob(os.path.join(msa_dir, "*_msa_chains_*.a3m")):
+                if os.path.exists(stale):
+                    os.remove(stale)
             match args.msa:
                 case "colab":
                     print("Running MSA generation using Colab...")
@@ -66,7 +81,7 @@ def msa_generation(args):
                         shell=True,
                         check=True,
                     )
-                    output_msa = glob.glob(os.path.join(msa_dir, "*.a3m"))[0]
+                    output_msa = main_a3m
                     output_yaml = split_colab_a3m_write_yaml(output_msa)
                     print(f"MSA generated at: {output_msa}")
 

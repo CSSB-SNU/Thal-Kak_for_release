@@ -95,6 +95,51 @@ def fix_pdb_chain_ids(pdb_path):
         f.writelines(fixed_lines)
 
 
+def reorder_pdb_chains(pdb_path):
+    """Reorder atom records so chains appear alphabetically (A, B, C, D).
+
+    boltz groups chain copies by entity, so an A2B2 complex comes out as
+    A, C, B, D, whereas the other models emit A, B, C, D. Reorder the chain
+    blocks to match and renumber atom serials so they stay monotonic. Chain
+    labels are unchanged -- only record order and serials.
+    """
+    with open(pdb_path, "r") as f:
+        lines = f.readlines()
+
+    blocks, order, header, trailer = {}, [], [], []
+    seen_atom = False
+    for line in lines:
+        if line.startswith(("ATOM", "HETATM", "ANISOU", "TER")):
+            seen_atom = True
+            chain_id = line[21:22]
+            if chain_id not in blocks:
+                blocks[chain_id] = []
+                order.append(chain_id)
+            blocks[chain_id].append(line)
+        elif not seen_atom:
+            header.append(line)
+        else:
+            trailer.append(line)
+
+    if order == sorted(order):
+        return  # already alphabetical
+
+    out = list(header)
+    serial = 0
+    for chain_id in sorted(blocks):
+        for line in blocks[chain_id]:
+            if line.startswith("ANISOU"):
+                s = serial  # ANISOU shares the serial of its preceding atom
+            else:
+                serial += 1
+                s = serial
+            out.append(f"{line[:6]}{s:>5}{line[11:]}")
+    out.extend(trailer)
+
+    with open(pdb_path, "w") as f:
+        f.writelines(out)
+
+
 def rename_output_dir(output_dir):
     if os.path.exists(f"{output_dir}"):
         output_dir += datetime.now().strftime("_%Y_%m_%d_%H_%M_%S")
@@ -298,6 +343,7 @@ def main(data_yaml, boltz2_yaml):
                 f"{output_dir}/common/{name}_seed_{seed}_sample_{i}.pdb",
             )
             fix_pdb_chain_ids(f"{output_dir}/common/{name}_seed_{seed}_sample_{i}.pdb")
+            reorder_pdb_chains(f"{output_dir}/common/{name}_seed_{seed}_sample_{i}.pdb")
     df = pd.DataFrame(csv_rows)
     df.sort_values(by=["ranking_score"], inplace=True, ascending=False)
     df.to_csv(f"{output_dir}/common/{name}_results_summary.csv", index=False)

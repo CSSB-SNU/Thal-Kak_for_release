@@ -24,6 +24,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 import yaml
 
 # Silence rdkit's pickle-version warning spammed while loading ccd.pkl
@@ -50,6 +51,151 @@ COMMON_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "common")
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 from chain_utils import assign_chain_indices
+
+
+def _enable_cueq_ops() -> None:
+    """Preload cuequivariance's ``libcue_ops.so`` (``RTLD_GLOBAL``) so the cueq
+    kernel backend is loadable without ``LD_LIBRARY_PATH``. Must run after torch
+    is imported (torch pulls the CUDA libs the .so links). No-op if
+    cuequivariance isn't installed / CPU-only -- backend selection then falls
+    back to pure PyTorch.
+    """
+    try:
+        import ctypes
+
+        import cuequivariance_ops
+
+        lib = os.path.join(
+            os.path.dirname(cuequivariance_ops.__file__), "lib", "libcue_ops.so"
+        )
+        if os.path.exists(lib):
+            ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+    except Exception:
+        pass
+
+
+def _set_msa_trimul_backend(model, backend: str) -> int:
+    """Route the MSA encoder's trimul blocks through ``backend``.
+
+    ``model.set_kernel_backend()`` does not reach ``msa_encoder``, so flip the
+    backend on each block's ``TriangleMultiplicativeUpdate`` directly. Returns
+    the number of trimul modules switched.
+    """
+    msa = getattr(model, "msa_encoder", None)
+    n = 0
+    if msa is not None and hasattr(msa, "blocks"):
+        for blk in msa.blocks:
+            for attr in ("tri_mul_out", "tri_mul_in"):
+                t = getattr(blk, attr, None)
+                if t is not None and hasattr(t, "set_kernel_backend"):
+                    t.set_kernel_backend(backend)
+                    n += 1
+    return n
+
+
+class _LMOffloader:
+    """Parks ``model._esmc`` (the ESM-C backbone) on CPU during the
+    trunk/diffusion phase, moving it to the GPU only for its one forward per
+    fold.
+
+    The backbone runs once at the start of ``forward()`` and is never touched by
+    the folding trunk or diffusion sampler, yet it otherwise stays resident on
+    the GPU for the whole folding phase. Forward hooks move it in just before
+    the LM forward and evict it (+``empty_cache``) right after -- non-invasive,
+    no edits to the model. Trade-off: a CPU<->GPU transfer per fold, so enable
+    only when GPU memory is the constraint. Numerically identical -- same
+    compute, the module is only relocated.
+    """
+
+    def __init__(self, model, device: "torch.device") -> None:
+        self.esmc = getattr(model, "_esmc", None)
+        self.device = device
+        self._handles: list = []
+
+    @property
+    def active(self) -> bool:
+        return self.esmc is not None and self.device.type == "cuda"
+
+    def install(self) -> "_LMOffloader":
+        if not self.active:
+            return self
+        # Park immediately so the first trunk pass already runs lean.
+        self.esmc.to("cpu")
+        torch.cuda.empty_cache()
+
+        # Hooks must return None -- a non-None pre-hook return replaces forward's
+        # args (``.to()`` returns the module, which would clobber input_ids).
+        def _to_gpu(_m, _a) -> None:
+            self.esmc.to(self.device)
+
+        def _evict(_m, _a, _o) -> None:
+            self.esmc.to("cpu")
+            torch.cuda.empty_cache()
+
+        self._handles.append(self.esmc.register_forward_pre_hook(_to_gpu))
+        self._handles.append(self.esmc.register_forward_hook(_evict))
+        return self
+
+    def remove(self) -> None:
+        for h in self._handles:
+            h.remove()
+        self._handles.clear()
+        if self.esmc is not None and self.device.type == "cuda":
+            self.esmc.to(self.device)  # restore so the model is left as found
+
+
+def _configure_acceleration(model, esm_cfg: dict):
+    """Apply optional inference accelerators from the config.
+
+    Each lever is read from ``esm_cfg`` (absent -> off):
+
+    - ``tf32``: allow TF32 on the fp32 matmul path (faster, lower precision;
+      changes numerics). Matches the ESMFold2 paper's inference config.
+    - ``kernel_backend``: ``"cuequivariance"`` | ``"fused"`` | null -- kernel
+      path for the trunk/diffusion/confidence blocks (changes numerics).
+    - ``cueq_msa``: also route the MSA encoder trimul through cueq (requires
+      ``kernel_backend: cuequivariance``).
+    - ``chunk_size``: cap L^2 transients (triangle / OPM / attention) by tiling
+      -- the memory lever for large complexes. int | null.
+    - ``offload_lm``: park the ESM-C backbone on CPU during folding;
+      numerically identical.
+
+    Returns ``(label, offloader)``; keep ``offloader`` alive for the whole
+    folding loop (its forward hooks stay installed until GC / ``remove()``).
+    """
+    tf32 = bool(esm_cfg.get("tf32", False))
+    kernel_backend = esm_cfg.get("kernel_backend", None)
+    cueq_msa = bool(esm_cfg.get("cueq_msa", False))
+    chunk_size = esm_cfg.get("chunk_size", None)
+    offload_lm = bool(esm_cfg.get("offload_lm", False))
+
+    parts = []
+    if tf32:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        parts.append("tf32")
+
+    if kernel_backend:
+        if kernel_backend == "cuequivariance":
+            _enable_cueq_ops()
+        model.set_kernel_backend(kernel_backend)
+        parts.append(f"backend={kernel_backend}")
+        if cueq_msa and kernel_backend == "cuequivariance":
+            n = _set_msa_trimul_backend(model, kernel_backend)
+            parts.append(f"cueq-msa x{n}")
+
+    if chunk_size is not None:
+        model.set_chunk_size(int(chunk_size))
+        parts.append(f"chunk_size={int(chunk_size)}")
+
+    offloader = None
+    if offload_lm:
+        device = next(model.parameters()).device
+        offloader = _LMOffloader(model, device).install()
+        if offloader.active:
+            parts.append("offload_lm")
+
+    return (", ".join(parts) if parts else "reference (pure-pytorch)"), offloader
 
 
 def _chain_letter(index: int) -> str:
@@ -218,10 +364,27 @@ def main(data_yaml_path, esm_yaml_path):
     a3m_entries = data_cfg.get("a3m", [])
     ligand_entries = data_cfg.get("ligand", [])
 
+    # ESMFold2 has no template channel; a `templates` block in the shared data
+    # yaml (consumed by boltz/chai/af3) is silently ignored here -- flag it.
+    if data_cfg.get("templates"):
+        print(
+            "[esmfold2] note: 'templates' in the data yaml is ignored "
+            "(ESMFold2 is MSA-only and has no template input).",
+            flush=True,
+        )
+
     model_variant = esm_cfg.get("model_variant", "biohub/ESMFold2")
     num_loops = int(esm_cfg.get("num_loops", 3))
     num_sampling_steps = int(esm_cfg.get("num_sampling_steps", 200))
     num_diffusion_samples = int(esm_cfg.get("num_diffusion_samples", 5))
+    # MSA inference-diversity knobs (esm >= #342/#343). msa_max_depth=null
+    # disables row subsampling (msa_subsample_at_inference is derived from it);
+    # msa_column_mask_rate=0.0 disables column masking. Both off reproduces the
+    # pre-diversity behavior.
+    msa_max_depth = esm_cfg.get("msa_max_depth", None)
+    if msa_max_depth is not None:
+        msa_max_depth = int(msa_max_depth)
+    msa_column_mask_rate = float(esm_cfg.get("msa_column_mask_rate", 0.0))
     # MSA is only used by the full ESMFold2 variant; the -Fast variant skips it.
     is_fast = model_variant.endswith("-Fast")
     use_msa = esm_cfg.get("use_msa", True) and not is_fast
@@ -255,6 +418,8 @@ def main(data_yaml_path, esm_yaml_path):
 
     print(f"[esmfold2] loading {model_variant} ...", flush=True)
     model = ESMFold2Model.from_pretrained(model_variant).cuda().eval()
+    accel_label, _offloader = _configure_acceleration(model, esm_cfg)
+    print(f"[esmfold2] acceleration: {accel_label}", flush=True)
     builder = ESMFold2InputBuilder()
 
     result_root = _result_root(output_dir, target, job_name)
@@ -272,6 +437,8 @@ def main(data_yaml_path, esm_yaml_path):
             num_loops=num_loops,
             num_sampling_steps=num_sampling_steps,
             num_diffusion_samples=num_diffusion_samples,
+            msa_max_depth=msa_max_depth,
+            msa_column_mask_rate=msa_column_mask_rate,
             seed=int(seed),
             complex_id=target,
         )

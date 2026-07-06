@@ -57,8 +57,10 @@ dependencies:
       - wandb==0.18.7
       # ESMFold2 stack. esm 3.3.0 (Biohub) is required for ESMFold2 and brings
       # the Biohub transformers fork (transformers.models.esmfold2) as a
-      # transitive -- do not pin transformers separately.
-      - git+https://github.com/Biohub/esm.git@fba1e42
+      # transitive, pinned to @main by esm. install.sh re-pins transformers to
+      # a fixed commit post-install (it can't be pinned here -- esm's @main
+      # direct-URL requirement would conflict / override it).
+      - git+https://github.com/Biohub/esm.git@cf002f1d2fb9220a0918fc8c5ea4e3b56d28fbaf
       - accelerate==1.13.0
       - tokenizers==0.22.2
       - huggingface_hub==0.36.2
