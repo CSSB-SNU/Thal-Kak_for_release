@@ -66,6 +66,42 @@ choice (`msa`, `structure`, `relax`), so the output carries a provenance record.
 RNA and DNA targets are automatically detected from the FASTA alphabet: RNA chains go
 through an NHMMER-based MSA search, while DNA chains pass through as FASTA.
 
+## Install
+
+```
+bash install.sh
+```
+
+This creates the unified `thalkak` conda environment (Boltz-2, Chai-1,
+Protenix, ESMFold2, ColabFold MSA, and OpenMM/Amber relaxation all in one env)
+from `environment.yml` plus the `--no-deps` packages in
+`requirements-nodeps.txt`. See the comments at the top of `install.sh` for the
+exact steps.
+
+### RNA MSA database (only for RNA targets)
+
+RNA targets need a local RNA MSA database (Rfam + RNAcentral). Build it once
+with the provided script, which downloads, clusters, and indexes the databases
+into `MSA/script/RNA_MSA_search/db` — exactly where the pipeline looks for them:
+
+```bash
+conda activate thalkak
+cd MSA/script/RNA_MSA_search
+bash prepare_db.sh
+```
+
+The tools it uses (`mmseqs`, HMMER) are already in the conda environment. The
+RNAcentral download and clustering is large and can take hours. Skip this step
+entirely if you only run protein targets.
+
+Each structure-prediction model downloads its own weights to its default cache
+location on first run (e.g. `~/.boltz` for Boltz-2, `~/.cache/huggingface` for
+ESMFold2).
+
+The vendored model sources live under `Structure/submodules/` and were pulled in
+as git subtrees; see [readme/subtrees.yaml](readme/subtrees.yaml) for their
+upstream origins.
+
 ## Usage
 
 > Activate the environment first: `conda activate thalkak`
@@ -102,39 +138,3 @@ thalkak structure --model boltz2 \
 # Relax only
 thalkak relax --decoy_dir <dir of decoy PDBs> --relax amber
 ```
-
-## Install
-
-```
-bash install.sh
-```
-
-This creates the unified `thalkak` conda environment (Boltz-2, Chai-1,
-Protenix, ESMFold2, ColabFold MSA, and OpenMM/Amber relaxation all in one env)
-from `environment.yml` plus the `--no-deps` packages in
-`requirements-nodeps.txt`. See the comments at the top of `install.sh` for the
-exact installation steps.
-
-### RNA MSA database (only for RNA targets)
-
-RNA targets require a local RNA MSA database (Rfam + RNAcentral). Build it once
-with the provided script, which downloads, clusters, and indexes the databases
-into `MSA/script/RNA_MSA_search/db`, exactly where the pipeline looks for them:
-
-```bash
-conda activate thalkak
-cd MSA/script/RNA_MSA_search
-bash prepare_db.sh
-```
-
-The tools it uses (`mmseqs`, HMMER) are already in the conda environment.
-RNAcentral is a large database, so downloading and clustering it can take hours.
-Skip this step entirely if you only run protein targets.
-
-Each structure-prediction model downloads its own weights to its default cache
-location on first run (e.g. `~/.boltz` for Boltz-2, `~/.cache/huggingface` for
-ESMFold2).
-
-The vendored model sources live under `Structure/submodules/` and were added
-as git subtrees; see [readme/subtrees.yaml](readme/subtrees.yaml) for their
-upstream origins.
