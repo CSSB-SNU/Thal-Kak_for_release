@@ -28,7 +28,7 @@
    # No hits, raise an error.
    raise SequenceNotInTemplateError(
        'Could not find the template sequence in %s_%s. Template sequence: %s, '
-@@ -534,19 +523,33 @@
+@@ -534,19 +523,37 @@
          f'The exact sequence {template_sequence} was not found in '
          f'{pdb_id}_{chain_id}. Realigning the template to the actual sequence.')
      logging.warning(warning)
@@ -72,6 +72,10 @@
 +          mapping_offset = match.start()
 +          seqres = chain_sequence
 +          break
- 
++      else:
++        raise SequenceNotInTemplateError(
++            'Could not find a fuzzy match for template sequence in %s. '
++            'Template sequence: %s' % (pdb_id, template_sequence))
+
    try:
      # Essentially set to infinity - we don't want to reject templates unless
