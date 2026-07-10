@@ -147,12 +147,12 @@ def rename_output_dir(output_dir):
 
 
 def mv_output_dir(temp_dir, output_dir):
-    os.makedirs(output_dir)
-    os.rename(temp_dir, f"{output_dir}")
+    os.makedirs(os.path.dirname(output_dir), exist_ok=True)
+    shutil.move(temp_dir, output_dir)
     os.makedirs(f"{output_dir}/common", exist_ok=True)
     try:
         os.rmdir("./temp/")
-    except:
+    except OSError:
         pass
 
 
@@ -225,7 +225,7 @@ def main(data_yaml, boltz2_yaml):
     if "ligand" in data_config and data_config["ligand"]:
         for entity in data_config["ligand"]:
             yaml_output += f"  - ligand:\n"
-            yaml_output += f"      id: [{','.join([chr(65 + k) if k < 26 else chr(65 + k%26)+chr(64 + k//26) for k in range(n_chain, n_chain + entity['copy'])])}]\n"
+            yaml_output += f"      id: [{','.join([chr(65 + k) if k < 26 else chr(65 + k % 26) + chr(64 + k // 26) for k in range(n_chain, n_chain + entity['copy'])])}]\n"
             if "smiles" in entity and entity["smiles"]:
                 yaml_output += f"      smiles: '{entity['smiles']}'\n"
             elif "ccd" in entity and entity["ccd"]:
@@ -262,7 +262,9 @@ def main(data_yaml, boltz2_yaml):
                     f"residue(s) with UNK/N/DN"
                 )
             template_yaml += f"  - cif: {cleaned}\n"
-            template_yaml += f"    template_id: [{','.join([label_chain] * len(query_chains))}]\n"
+            template_yaml += (
+                f"    template_id: [{','.join([label_chain] * len(query_chains))}]\n"
+            )
             template_yaml += f"    chain_id: [{','.join(query_chains)}]\n"
         if template_yaml:
             yaml_output += "templates:\n" + template_yaml
@@ -278,7 +280,7 @@ def main(data_yaml, boltz2_yaml):
 
     ### Run boltz2
 
-    if boltz_config['no_kernels']:
+    if boltz_config["no_kernels"]:
         command = f"boltz predict {temp_dir}/{name}.yaml --out_dir {Path(temp_dir).parents[0]} --output_format {boltz_config['output_format']} --diffusion_samples {boltz_config['n_samples']} --recycling_steps {boltz_config['recycling_steps']} --sampling_steps {boltz_config['sampling_steps']} --no_kernels"
     else:
         command = f"boltz predict {temp_dir}/{name}.yaml --out_dir {Path(temp_dir).parents[0]} --output_format {boltz_config['output_format']} --diffusion_samples {boltz_config['n_samples']} --recycling_steps {boltz_config['recycling_steps']} --sampling_steps {boltz_config['sampling_steps']}"
@@ -316,9 +318,9 @@ def main(data_yaml, boltz2_yaml):
     for seed in data_config["seed"] if data_config["seed"] != None else [None]:
         for i in range(boltz_config["n_samples"]):
             if seed is not None:
-                prediction_dir = f"{output_dir}/predictions/{name}_seed_{seed}/"
+                prediction_dir = f"{output_dir}/predictions/{name}_seed_{seed}"
             else:
-                prediction_dir = f"{output_dir}/predictions/{name}/"
+                prediction_dir = f"{output_dir}/predictions/{name}"
 
             with open(
                 f"{prediction_dir}/confidence_{name}_model_{i}.json", "r"
@@ -330,7 +332,7 @@ def main(data_yaml, boltz2_yaml):
                     "option": data_config["job_name"],
                     "model": "boltz",
                     "seed-sample": f"seed_{seed}_sample_{i}",
-                    "mean_plddt": f"{confidence_json['complex_plddt']*100:.3f}",
+                    "mean_plddt": f"{confidence_json['complex_plddt'] * 100:.3f}",
                     "ptm": f"{confidence_json['ptm']:.3f}",
                     "iptm": f"{confidence_json['iptm']:.3f}",
                     "ranking_score": f"{confidence_json['confidence_score']:.3f}",
