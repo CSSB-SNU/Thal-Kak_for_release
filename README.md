@@ -13,24 +13,9 @@ top-5 models based on the predictor's own confidence score, and relaxes them.
 **Try it in Colab (protein targets):**
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CSSB-SNU/Thal-Kak_for_release/blob/main/Thalkak.ipynb)
 
-<details>
-<summary><b>Opening the notebook (private repo — one-time setup)</b></summary>
-
-Because this repo is private, Colab can't load the notebook until you link your
-GitHub account to Colab **once** (per Google account). If the badge shows a
-`404 Not Found`, do this:
-
-1. Open [Colab](https://colab.research.google.com/) → **File → Open notebook → GitHub** tab.
-2. Click **Authorize with GitHub** and sign in.
-3. Enable **"Include private repositories"** (this grants Colab read access to your private repos).
-4. Search for `CSSB-SNU/Thal-Kak_for_release` and open `Thalkak.ipynb` — or just click the badge above again; it now resolves.
-
-Notes:
-- Only works for accounts with **read access** to this repo.
-- The notebook still clones the code at runtime using a **GitHub token** you enter in step 2 of the notebook (it is read hidden and scrubbed from the git remote right after cloning).
-- Requires a **GPU** runtime: `Runtime → Change runtime type → GPU`.
-
-</details>
+> Click the badge, choose a **GPU** runtime (`Runtime → Change runtime type → GPU`),
+> then `Runtime → Run all`. The first run installs the full environment and
+> downloads model weights, so expect ~20–30 min before results appear.
 
 ## Pipeline overview
 
