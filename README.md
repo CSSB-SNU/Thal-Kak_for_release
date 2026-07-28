@@ -10,6 +10,12 @@ structure predictors through a single interface. Starting from an input FASTA, i
 generates an MSA, runs the selected predictor across multiple seeds, selects the
 top-5 models based on the predictor's own confidence score, and relaxes them.
 
+**Try it in Colab (protein targets):**
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CSSB-SNU/Thal-Kak_for_release/blob/main/Thalkak.ipynb)
+
+> The repo is currently private, so the notebook asks for a GitHub token to
+> clone it, and opening the notebook requires authorizing Colab's GitHub access.
+
 ## Pipeline overview
 
 <div align="center">
