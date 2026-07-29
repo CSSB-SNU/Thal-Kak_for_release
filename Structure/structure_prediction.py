@@ -98,6 +98,12 @@ def structure_prediction(args):
                 "--use_template", "true",
             ]
 
+            # Optional persistent checkpoint dir (e.g. a Google Drive cache).
+            # Unset -> protenix uses its own default under the submodule.
+            protenix_ckpt = os.environ.get("PROTENIX_CHECKPOINT_DIR")
+            if protenix_ckpt:
+                inference_argv += ["--load_checkpoint_dir", protenix_ckpt]
+
             min_size_test = protenix_yaml.get("data.msa.min_size.test")
             if min_size_test is not None:
                 inference_argv += ["--data.msa.min_size.test", str(min_size_test)]
