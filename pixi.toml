@@ -1,5 +1,5 @@
 # pixi manifest for the thalkak env (mirrors environment.yml + install.sh).
-# The pyrosetta wheel and the alphafold site-packages patch run as [tasks].
+# The alphafold site-packages patch runs as a [task].
 [workspace]
 name = "thalkak"
 channels = ["conda-forge", "bioconda"]
@@ -12,9 +12,7 @@ platforms = ["linux-64"]
 # scipy, which otherwise conflicts with a pypi pin).
 [dependencies]
 python = "3.12.*"
-# pyrosetta-installer shells out to a bare `pip install`; without an env-local
-# pip that resolves to the system python (3.9) and installs pyrosetta into the
-# wrong interpreter. Ship pip so the env's pip shadows it.
+# Ship an env-local pip so it shadows the system python's pip.
 pip = "*"
 hmmer = "==3.4.0"
 # bioconda hmmer links libopenblas.so.0 directly (RNA MSA needs it) but declares
@@ -60,7 +58,6 @@ dependency-overrides = { numpy = ">=2", gemmi = ">=0.7", tqdm = ">=4.67", matplo
 torch = "==2.7.1"
 torchvision = "==0.22.1"
 torchaudio = "==2.7.1"
-pyrosetta-installer = "==0.1.2"
 biopython = "==1.84"
 gemmi = "==0.7.5"
 pytorch-lightning = "==2.5.0"
@@ -113,9 +110,7 @@ thalkak = { path = ".", editable = true }
 # ---- post-install steps (install.sh steps not expressible as dependencies) ----
 # Run after `pixi install`:  pixi run postinstall
 [tasks]
-# 1. PyRosetta silent wheel (pyrosetta-installer downloads/installs it).
-install-pyrosetta = "python -c \"import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()\""
-# 2. Patch alphafold-colabfold templates.py (kalign realignment first). -N makes
-#    it a no-op if already applied.
+# Patch alphafold-colabfold templates.py (kalign realignment first). -N makes
+# it a no-op if already applied.
 patch-alphafold = "patch -p1 -N -d $CONDA_PREFIX/lib/python3.12/site-packages < MSA/script/patches/alphafold_templates_kalign_first.patch || true"
-postinstall = { depends-on = ["install-pyrosetta", "patch-alphafold"] }
+postinstall = { depends-on = ["patch-alphafold"] }
