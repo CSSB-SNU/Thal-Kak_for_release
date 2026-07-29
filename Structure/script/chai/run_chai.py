@@ -4,7 +4,7 @@ import os, sys, glob
 # update). Must precede the tqdm-using chai_lab import below.
 os.environ.setdefault("TQDM_DISABLE", "1")
 
-import json, argparse, shutil
+import json, argparse, shutil, string
 from pathlib import Path
 import pandas as pd
 import subprocess
@@ -15,7 +15,12 @@ import gc
 import numpy as np
 from Bio.PDB import MMCIFParser, PDBIO, Select, PDBParser
 from Bio.PDB.PDBExceptions import PDBConstructionException
-from chai_lab.chai1 import run_inference
+# from chai_lab.chai1 import run_inference
+from chai_lab.chai1 import (
+    make_all_atom_feature_context,
+    run_folding_on_context,
+    StructureCandidates,
+)
 import matplotlib.pyplot as plt
 import torch
 from Bio.SeqUtils import seq1
@@ -25,6 +30,7 @@ if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 from process_template import generate_m8_from_hhsearch
 from chain_utils import assign_chain_indices
+from chain_utils import PDB_CHAIN_CHARS, CIF_CHAIN_CHARS
 
 @lru_cache(maxsize=None)
 def ccd_to_smiles(ccd_id):
@@ -95,7 +101,6 @@ def write_query_fasta(target, a3m_list, ligand_list, query_fp):
     a3m_list: a3m part in data.json
     query_fp: path to output query fasta file
     """
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     query = []
     num_map = defaultdict(list)
 
@@ -119,7 +124,7 @@ def write_query_fasta(target, a3m_list, ligand_list, query_fp):
 
     for ci in range(n_polymer):
         j = chain_to_entity[ci]
-        chain_letter = alphabet[ci]
+        chain_letter = CIF_CHAIN_CHARS[ci]
         query.append(f">{a3m_list[j]['type']}|name={target}_{chain_letter}\n")
         query.append(seqs[j])
         num_map[f"{101 + j}"].append(f"{target}_{chain_letter}")
@@ -128,7 +133,7 @@ def write_query_fasta(target, a3m_list, ligand_list, query_fp):
     for ligand in ligand_list:
         smiles = resolve_ligand_smiles(ligand)
         for _ in range(ligand["copy"]):
-            chain_letter = alphabet[k]
+            chain_letter = CIF_CHAIN_CHARS[k]
             query.append(f">ligand|name={target}_{chain_letter}\n")
             query.append(smiles + "\n")
             k += 1
@@ -147,7 +152,6 @@ def convert_a3m_to_pqt(target, a3m_list, output_dir):
     a3m_list: a3m part in data.json
     output_dir: output directory path
     """
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     msa_parent_dir = output_dir / "msas"
 
     for i, a3m in enumerate(a3m_list):
@@ -155,7 +159,7 @@ def convert_a3m_to_pqt(target, a3m_list, output_dir):
         entity_type = a3m["type"]
 
         if entity_type == "protein":
-            chain_id = alphabet[i]
+            chain_id = CIF_CHAIN_CHARS[i]
             copy_num = a3m["copy"]
             chain_msa_dir =  msa_parent_dir / f"{target}_{chain_id}"
             chain_msa_dir.mkdir(parents=True, exist_ok=True)
@@ -291,6 +295,22 @@ def output_adapter(target, option, empty_output_dir, result_data, result_file):
         try:
             structure = parser.get_structure(pdb_filename[:-4], fp)
             model = structure[0]
+            # Relabel chains to single-char ids in order (A-Z, a-z, 0-9) so
+            # they fit PDB's single chain column; BioPython's PDBIO raises on
+            # multi-char ids. A model with more chains than the 62 labels can
+            # hold cannot be written as PDB -- keep the cif instead.
+            chains = list(model)
+            if len(chains) > len(PDB_CHAIN_CHARS):
+                fallback_cif = f"{output_dir}/common/{pdb_filename[:-4]}.cif"
+                shutil.copyfile(fp, fallback_cif)
+                print(
+                    f"[Warning] {pdb_filename[:-4]}: model has more than "
+                    f"{len(PDB_CHAIN_CHARS)} chains; cif->pdb conversion not "
+                    f"possible. Copied cif to {fallback_cif} instead."
+                )
+                continue
+            for new_chain_id, chain in zip(PDB_CHAIN_CHARS, chains):
+                chain.id = new_chain_id
             # Sanitize ligand names so they fit PDB's fixed columns
             # (residue name: 3 chars, atom name: 4 chars)
             for chain in model:
@@ -351,14 +371,23 @@ def draw_plots(result_file, output_dir):
 
     # plots
     all_plddts_data = []
-    _, axes_pae = plt.subplots(1, 5, figsize=(5 * 4, 4))
+    fig_pae, axes_pae = plt.subplots(1, 5, figsize=(5 * 4, 4))
     for i, (_, row) in enumerate(top_five.iterrows()):
         target = row['target']
         parts = row['seed-sample'].split('_')
         seed, sample = parts[1], parts[3]
-        pae = torch.load(output_dir / "common" / f"pae_{target}_seed_{seed}_sample_{sample}.pt")
+        pae_fp = output_dir / "common" / f"pae_{target}_seed_{seed}_sample_{sample}.pt"
         cif_file = output_dir / f"output_seed{seed}" / f"pred.model_idx_{sample}.cif"
         ca_plddts, breaks = extract_ca_data_from_cif(cif_file)
+        # A sample whose pae tensor or cif is missing (e.g. its seed failed
+        # mid-adapter) leaves its panel blank rather than killing the figure.
+        if not pae_fp.is_file() or ca_plddts is None:
+            print(
+                f"[Warning] Missing plot inputs for seed_{seed}_sample_{sample}; "
+                f"skipping panel."
+            )
+            continue
+        pae = torch.load(pae_fp)
         rank_label = f"rank_{i + 1:03d}"
         all_plddts_data.append((rank_label, ca_plddts, breaks))
         plot_pae_matrix(
@@ -369,8 +398,9 @@ def draw_plots(result_file, output_dir):
                     )
     plt.tight_layout()
     plt.savefig(output_dir / "common" / f"pae.png", dpi=300)
+    plt.close(fig_pae)
 
-    plt.figure(figsize=(12, 5))
+    fig_plddt = plt.figure(figsize=(12, 5))
     for label, plddts, breaks in all_plddts_data:
         plt.plot(plddts, label=label, alpha=0.8)
         if label == "rank_001":
@@ -386,6 +416,7 @@ def draw_plots(result_file, output_dir):
     plt.legend()
     plt.grid(True, axis="y", alpha=0.2)
     plt.savefig(output_dir / "common" / f"plddt.png", dpi=300)
+    plt.close(fig_plddt)
 
 def main(data_json, chai_json):
     with open(data_json, "r") as file:
@@ -463,25 +494,55 @@ def main(data_json, chai_json):
     else:
         template_hits_m8_fp = None
 
+    # ---- featurize ONCE, then reuse it for every seed -----------------------
+    # make_all_atom_feature_context() does all the seed-INDEPENDENT CPU work:
+    # parse inputs, load MSAs/templates, and -- the slow part for large branched
+    # glycan ligands -- RDKit ligand-conformer generation. The original run_chai.py
+    # paid this inside run_inference() on EVERY seed; here we build it a single
+    # time and reuse the same context across all seeds (chai already reuses one
+    # context across its own num_trunk_samples loop, so this is safe).
+    # NOTE esm_device must stay on the GPU to match run_inference()'s behaviour
+    # (it passes esm_device=cuda:0); defaulting to CPU would silently slow ESM.
+    torch_device = torch.device("cuda:0")
+    feature_context = make_all_atom_feature_context(
+        fasta_file=query_fp,
+        output_dir=output_dir,
+        entity_name_as_subchain=fasta_names_as_cif_chains,
+        use_esm_embeddings=use_esm_embeddings,
+        use_msa_server=False,
+        msa_directory=msas_dir,
+        constraint_path=constraint_path,
+        use_templates_server=False,
+        templates_path=template_hits_m8_fp,
+        esm_device=torch_device,
+    )
+
     for i, s in enumerate(seed):
         try: 
             print(f"[Process] Prediction info\nOutput dir {output_dir}\nMSA dir {msas_dir}\nTotal Samples {num_diffn_samples * num_trunk_samples}\n(Number of trunk samples {num_trunk_samples}; Number of diffn samples {num_diffn_samples})\nNumber of diffn time steps {num_diffn_timesteps}\nNumber of recycle msa subsample {recycle_msa_subsample}\nNumber of trunk recycles {num_trunk_recycles}\nTemplate hits {template_hits_m8_fp}\nSeed {s}\nConstraint path {constraint_path}\nUse ESM embeddings {use_esm_embeddings}\nFasta names as cif chains {fasta_names_as_cif_chains}")
             empty_output_dir = output_dir / f"output_seed{s}"            
-            prediction_result = run_inference(query_fp,
-                      output_dir = empty_output_dir,
-                      use_esm_embeddings = use_esm_embeddings,
-                      use_msa_server = False,
-                      msa_directory =  msas_dir,
-                      constraint_path = constraint_path,
-                      use_templates_server = False,
-                      template_hits_path = template_hits_m8_fp,
-                      recycle_msa_subsample = recycle_msa_subsample,
-                      num_trunk_recycles = num_trunk_recycles,
-                      num_diffn_timesteps = num_diffn_timesteps,
-                      num_diffn_samples = num_diffn_samples,
-                      num_trunk_samples = num_trunk_samples,
-                      seed = int(s),
-                      fasta_names_as_cif_chains = fasta_names_as_cif_chains)
+            # Only the GPU folding varies per seed. Mirror run_inference()'s
+            # num_trunk_samples loop, but on the pre-built feature_context.
+            all_candidates = []
+            for trunk_idx in range(num_trunk_samples):
+                cand = run_folding_on_context(
+                    feature_context,
+                    output_dir=(
+                        empty_output_dir / f"trunk_{trunk_idx}"
+                        if num_trunk_samples > 1
+                        else empty_output_dir
+                    ),
+                    num_trunk_recycles=num_trunk_recycles,
+                    num_diffn_timesteps=num_diffn_timesteps,
+                    num_diffn_samples=num_diffn_samples,
+                    recycle_msa_subsample=recycle_msa_subsample,
+                    seed=int(s) + trunk_idx,
+                    device=torch_device,
+                    low_memory=True,
+                    entity_names_as_chain_names_in_output_cif=fasta_names_as_cif_chains,
+                )
+                all_candidates.append(cand)
+            prediction_result = StructureCandidates.concat(all_candidates)
             output_adapter(target, job_name, empty_output_dir, prediction_result, result_file)
         except subprocess.CalledProcessError as e:
             print(f"Error: {e}")
@@ -490,11 +551,15 @@ def main(data_json, chai_json):
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
         gc.collect()
-    draw_plots(result_file, output_dir)
+    # Plots are cosmetic: never let them cost the caller the result directory.
+    try:
+        draw_plots(result_file, output_dir)
+    except Exception as e:
+        print(f"[Warning] Plot generation failed: {e}")
 
     print(f"RESULT_DIR:{output_dir}")
-    return output_dir
 
+    return output_dir
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

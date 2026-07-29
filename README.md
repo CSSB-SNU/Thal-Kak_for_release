@@ -39,12 +39,12 @@ The pipeline consists of three modular stages, each of which can be run independ
 |-------|---------|
 | MSA (`--msa`) | `colab` |
 | Structure (`--structure`) | `boltz2`, `chai1`, `protenix`, `esmfold2` |
-| Relaxation (`--relax`) | `none`, `amber` |
+| Relaxation (`--relax`) | `none`, `openmm` |
 
 Per-stage documentation:
 - [readme/MSA.md](readme/MSA.md): ColabFold MSA and templates; RNA chains are routed through NHMMER.
 - [readme/Structure.md](readme/Structure.md): Boltz-2, Chai-1, Protenix, and ESMFold2 runners, plus data/model YAML schemas.
-- [readme/Relax.md](readme/Relax.md): OpenMM Amber relaxation with pLDDT-weighted restraints.
+- [readme/Relax.md](readme/Relax.md): OpenMM all-atom relaxation with pLDDT-weighted restraints.
 
 ### Data flow in `full` mode
 ```
@@ -80,7 +80,7 @@ bash install.sh
 ```
 
 This creates the unified `thalkak` conda environment (Boltz-2, Chai-1,
-Protenix, ESMFold2, ColabFold MSA, and OpenMM/Amber relaxation all in one env)
+Protenix, ESMFold2, ColabFold MSA, and OpenMM relaxation all in one env)
 from `environment.yml` plus the `--no-deps` packages in
 `requirements-nodeps.txt`. See the comments at the top of `install.sh` for the
 exact steps.
@@ -115,7 +115,7 @@ upstream origins.
 
 ### Full pipeline
 ```
-thalkak full --msa colab --structure boltz2 --relax amber \
+thalkak full --msa colab --structure boltz2 --relax openmm \
     --seq examples/sample/T1201.fa --stoi A1
 ```
 
@@ -143,5 +143,5 @@ thalkak structure --model boltz2 \
     --model_config examples/boltz2.yaml
 
 # Relax only
-thalkak relax --decoy_dir <dir of decoy PDBs> --relax amber
+thalkak relax --decoy_dir <dir of decoy PDBs> --relax openmm
 ```

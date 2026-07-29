@@ -81,6 +81,22 @@ def msa_generation(args):
                         shell=True,
                         check=True,
                     )
+                    # colabfold can log a per-query HHSearch failure but still
+                    # exit 0, leaving no a3m (e.g. a served template has an empty
+                    # pdb70 index). Detect the missing a3m and retry without
+                    # templates so the MSA is still produced; the structure model
+                    # then runs template-less for this target.
+                    if not os.path.exists(main_a3m):
+                        print(
+                            "colabfold produced no a3m (likely template/hhsearch "
+                            "failure); retrying without templates."
+                        )
+                        subprocess.run(
+                            f"colabfold_batch --msa-only "
+                            f"{parsed_fasta_path} {msa_dir}",
+                            shell=True,
+                            check=True,
+                        )
                     output_msa = main_a3m
                     output_yaml = split_colab_a3m_write_yaml(output_msa)
                     print(f"MSA generated at: {output_msa}")

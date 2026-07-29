@@ -13,6 +13,7 @@ emitted on stdout so the orchestrator can pick it up.
 import argparse
 import csv
 import os
+import shutil
 import string
 import sys
 from datetime import datetime
@@ -51,6 +52,7 @@ COMMON_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "common")
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 from chain_utils import assign_chain_indices
+from chain_utils import PDB_CHAIN_CHARS, CIF_CHAIN_CHARS
 
 
 def _enable_cueq_ops() -> None:
@@ -198,11 +200,39 @@ def _configure_acceleration(model, esm_cfg: dict):
     return (", ".join(parts) if parts else "reference (pure-pytorch)"), offloader
 
 
-def _chain_letter(index: int) -> str:
-    """Convert 0-based chain index to a chain id (A..Z, then AA, BA, ...)."""
-    if index < 26:
-        return chr(ord("A") + index)
-    return chr(ord("A") + index % 26) + chr(ord("A") + index // 26)
+
+def _cif_to_pdb(cif_path, pdb_path):
+    """Convert an mmCIF model to PDB, relabeling chains to single-character ids
+    in ascending chain-index order: A-Z, then a-z, then 0-9 ("figures").
+
+    ESMFold2 writes chains grouped by input entity, so the cif's physical order
+    ('A', 'C', 'B', 'D', ...) does not match its chain ids. Chains are sorted by
+    chain index before relabeling -- relabeling by position alone would rename
+    'C' to 'B' and collapse the interleaved assignment from
+    assign_chain_indices() into per-entity blocks. Returns ``pdb_path`` on
+    success, or ``None`` when the model has more chains than the 62 single-char
+    labels can hold: PDB format cannot represent multi-character chain ids, so
+    no PDB is written in that case (the caller keeps the cif).
+    """
+    structure = gemmi.read_structure(cif_path)
+    if len(structure) == 0:
+        raise ValueError(f"No model found in {cif_path}")
+
+    model = structure[0]
+    chains = list(model)
+    if len(chains) > len(PDB_CHAIN_CHARS):
+        return None
+    chains.sort(key=lambda chain: CIF_CHAIN_CHARS.index(chain.name))
+
+    ordered = gemmi.Model(model.num)
+    for chain in chains:
+        ordered.add_chain(chain)
+    for new_name, chain in zip(PDB_CHAIN_CHARS, ordered):
+        chain.name = new_name
+    structure[0] = ordered
+
+    structure.write_pdb(pdb_path)
+    return pdb_path
 
 
 def _chain_breaks(chain_ids):
@@ -213,6 +243,7 @@ def _chain_breaks(chain_ids):
 
 
 def _plot_pae_matrix(ax, pae, breaks, title):
+
     pae = np.asarray(pae)
     num_res = pae.shape[0]
     im = ax.imshow(pae, cmap="bwr", vmin=0, vmax=30, extent=(0, num_res, num_res, 0))
@@ -222,13 +253,6 @@ def _plot_pae_matrix(ax, pae, breaks, title):
     for b in breaks:
         ax.axvline(x=b, color="black", linewidth=1.0)
         ax.axhline(y=b, color="black", linewidth=1.0)
-    chain_boundaries = [0] + list(breaks) + [num_res]
-    ytick_positions, ytick_labels = [], []
-    for i in range(len(chain_boundaries) - 1):
-        ytick_positions.append((chain_boundaries[i] + chain_boundaries[i + 1]) / 2)
-        ytick_labels.append(string.ascii_uppercase[i])
-    ax.set_yticks(ytick_positions)
-    ax.set_yticklabels(ytick_labels, fontsize=10, fontweight="bold")
     ax.set_title(title, fontsize=9)
     return im
 
@@ -408,10 +432,10 @@ def main(data_yaml_path, esm_yaml_path):
 
     sequences = []
     for idx, entry in enumerate(a3m_entries):
-        ids = [_chain_letter(i) for i in chains_per_entity[idx]]
+        ids = [CIF_CHAIN_CHARS[i] for i in chains_per_entity[idx]]
         sequences.append(_make_polymer_input(entry, ids, use_msa))
     for j, entry in enumerate(ligand_entries):
-        ids = [_chain_letter(i) for i in chains_per_ligand[j]]
+        ids = [CIF_CHAIN_CHARS[i] for i in chains_per_ligand[j]]
         sequences.append(_make_ligand_input(entry, ids))
 
     spi = StructurePredictionInput(sequences=sequences)
@@ -451,7 +475,15 @@ def main(data_yaml_path, esm_yaml_path):
             pdb_path = os.path.join(common, f"{stem}.pdb")
             with open(cif_path, "w") as f:
                 f.write(res.complex.to_mmcif())
-            gemmi.read_structure(cif_path).write_pdb(pdb_path)
+            if _cif_to_pdb(cif_path, pdb_path) is None:
+                fallback_cif = os.path.join(common, f"{stem}.cif")
+                shutil.copyfile(cif_path, fallback_cif)
+                print(
+                    f"[esmfold2] warning: {stem}: model has more than "
+                    f"{len(PDB_CHAIN_CHARS)} chains; cif->pdb conversion not "
+                    f"possible. Copied cif to {fallback_cif} instead.",
+                    flush=True,
+                )
             # ESMFold2 emits plddt in [0, 1]; rescale to the 0-100 convention
             # the rest of the pipeline (and the comparison plot) expects.
             plddt_arr = (

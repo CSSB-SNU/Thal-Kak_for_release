@@ -34,8 +34,8 @@ prominent notice has been added to the affected files (Apache-2.0 Sec. 4(b)).
    - License: Apache License 2.0 (see Structure/submodules/chai-lab/LICENSE)
 
 3. AlphaFold-derived code (DeepMind Technologies Limited)
-   - Files:   Relax/script/amber/residue_constants.py
-              Relax/script/amber/violations_torch.py
+   - Files:   Relax/script/openmm/residue_constants.py
+              Relax/script/openmm/violations_torch.py
    - Source:  AlphaFold (https://github.com/deepmind/alphafold)
    - License: Apache License 2.0
    - Copyright 2021 DeepMind Technologies Limited.
@@ -51,6 +51,17 @@ prominent notice has been added to the affected files (Apache-2.0 Sec. 4(b)).
      modification by CSSB Thal-Kak (2026): try kalign realignment before
      falling back to fuzzy regex matching of template sequences.
 
+5. OpenMMDL-derived code (Wolber lab)
+   - Files:   Relax/script/openmm/ff_stack.py
+              Relax/script/openmm/glycoprotein.py
+   - Source:  OpenMMDL (https://github.com/wolberlab/OpenMMDL)
+   - License: MIT License
+   - Copyright (c) 2024 Valerij Talagayev, Yu Chen, Niklas Piet Doering &
+     Leon Obendorf (Wolber lab).
+   - ff_stack.py adapts OpenMMDL's force-field/water assembly; glycoprotein.py
+     follows OpenMMDL's GLYCAM residue/linkage/atom-name tables (reimplemented
+     on OpenMM Topology objects). See each file header for the full MIT notice.
+
 ================================================================================
 Third-party runtime dependencies (NOT redistributed; installed via pip/conda)
 ================================================================================
@@ -64,7 +75,7 @@ licenses govern the respective packages, not this work.
    boltz ................ MIT
    esm (EvolutionaryScale / CZ Biohub) .. MIT (model weights may differ)
    transformers ......... Apache License 2.0
-   openmm ............... LGPL-3.0-or-later (used for Amber relaxation)
+   openmm ............... LGPL-3.0-or-later (used for structure relaxation)
    pdbfixer ............. MIT
    gemmi ................ MPL-2.0
    rdkit ................ BSD-3-Clause

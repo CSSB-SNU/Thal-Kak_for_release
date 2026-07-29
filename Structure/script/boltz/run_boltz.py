@@ -1,4 +1,4 @@
-import yaml, subprocess, os, json, argparse, shutil, time, sys
+import yaml, subprocess, os, json, argparse, shutil, time, sys, string
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -12,6 +12,7 @@ for _p in (SCRIPT_DIR, COMMON_DIR):
         sys.path.insert(0, _p)
 from chain_utils import assign_chain_indices
 from template_cleaner import clean_template_for_boltz
+from chain_utils import PDB_CHAIN_CHARS, CIF_CHAIN_CHARS
 
 
 def auth_to_label(cif_path, auth_chain):
@@ -67,7 +68,15 @@ def auth_to_label(cif_path, auth_chain):
 
 
 def fix_pdb_chain_ids(pdb_path):
-    """Fix 2-character chain IDs (e.g., AA, BA) to lowercase single chars (a, b, ...)."""
+    """Collapse boltz's 2-character chain IDs (e.g. AA, BA) to single chars,
+    continuing the label sequence after 'Z' as a-z then 0-9 (the shared
+    PDB_CHAIN_CHARS scheme). Single-char A-Z chains are left untouched.
+
+    Returns True on success (including when there is nothing to fix). Returns
+    False without modifying the file when the model has more chains than the
+    62 single-char labels can hold -- such a model cannot be written as a
+    standard PDB, and the caller falls back to the cif.
+    """
     with open(pdb_path, "r") as f:
         lines = f.readlines()
 
@@ -80,64 +89,187 @@ def fix_pdb_chain_ids(pdb_path):
                 seen.append(chain_id)
 
     if not seen:
-        return
+        return True
 
-    chain_map = {cid: chr(97 + i) for i, cid in enumerate(seen)}
+    # boltz emits 2-char ids only for chains past the 26 single-char A-Z ones,
+    # so they continue the label sequence at 'a': PDB_CHAIN_CHARS[26], [27], ...
+    if 26 + len(seen) > len(PDB_CHAIN_CHARS):
+        return False
 
+    chain_map = {cid: PDB_CHAIN_CHARS[26 + i] for i, cid in enumerate(seen)}
+
+    # Remap ATOM/HETATM *and* TER records -- boltz puts the chain id in the
+    # same columns on TER lines, and leaving them with the old 2-char id both
+    # looks wrong and misleads reorder_pdb_chains (which groups by column 22).
     fixed_lines = []
     for line in lines:
-        if line.startswith(("ATOM", "HETATM")) and line[22].isalpha():
+        if line.startswith(("ATOM", "HETATM", "TER")) and line[22:23].isalpha():
             chain_id = line[21:23]
-            line = line[:21] + chain_map[chain_id] + line[23:]
+            if chain_id in chain_map:
+                line = line[:21] + chain_map[chain_id] + line[23:]
         fixed_lines.append(line)
 
     with open(pdb_path, "w") as f:
         f.writelines(fixed_lines)
+    return True
+
+
+def _boltz_cif_to_pdb(cif_path, pdb_path):
+    """Convert a boltz mmCIF model to PDB, collapsing 2-char chain names to
+    single chars the same way fix_pdb_chain_ids does for boltz's PDB output, so
+    both output_format modes yield identical chain labels. Single-char A-Z
+    chains are left as-is; 2-char chains (boltz chains past 'Z') continue the
+    label sequence at 'a' in chain order (a-z, 0-9).
+
+    Returns pdb_path on success, or None if the model has more chains than the
+    62 single-char labels can hold (the caller keeps the cif instead).
+    """
+    import gemmi
+
+    structure = gemmi.read_structure(cif_path)
+    if len(structure) == 0:
+        raise ValueError(f"No model found in {cif_path}")
+
+    chains = list(structure[0])
+    if len(chains) > len(PDB_CHAIN_CHARS):
+        return None
+
+    # Relabel the multi-char chains (boltz names them AA, BA, ...) to a-z/0-9,
+    # in chain order, leaving single-char A-Z chains untouched.
+    two_char = [c for c in chains if len(c.name) > 1]
+    for i, chain in enumerate(two_char):
+        chain.name = PDB_CHAIN_CHARS[26 + i]
+
+    structure.write_pdb(pdb_path)
+    return pdb_path
+
+
+def _make_ter(serial, last_atom):
+    """Build a well-formed TER record terminating the chain of ``last_atom``.
+
+    Copies resName/chainID/resSeq/iCode (cols 18-27) from the chain's final
+    ATOM/HETATM line and gives the TER its own serial.
+    """
+    return f"TER   {serial:>5}      {last_atom[17:27]}\n"
 
 
 def reorder_pdb_chains(pdb_path):
-    """Reorder atom records so chains appear alphabetically (A, B, C, D).
+    """Reorder atom records so chains appear alphabetically (A, B, C, D) and
+    terminate every polymer chain with exactly one TER.
 
     boltz groups chain copies by entity, so an A2B2 complex comes out as
     A, C, B, D, whereas the other models emit A, B, C, D. Reorder the chain
     blocks to match and renumber atom serials so they stay monotonic. Chain
     labels are unchanged -- only record order and serials.
+
+    boltz's PDB writer also omits the TER after the last chain in the file;
+    once chain blocks are relocated that gap ends up in the middle of the
+    model. So drop the inherited TER records entirely and regenerate one per
+    polymer chain, guaranteeing a TER between chains and at the terminal chain
+    regardless of what boltz emitted (or of whether a reorder was needed).
     """
     with open(pdb_path, "r") as f:
         lines = f.readlines()
 
+    # TER lines are dropped here and regenerated below.
     blocks, order, header, trailer = {}, [], [], []
     seen_atom = False
     for line in lines:
-        if line.startswith(("ATOM", "HETATM", "ANISOU", "TER")):
+        if line.startswith(("ATOM", "HETATM", "ANISOU")):
             seen_atom = True
             chain_id = line[21:22]
             if chain_id not in blocks:
                 blocks[chain_id] = []
                 order.append(chain_id)
             blocks[chain_id].append(line)
+        elif line.startswith("TER"):
+            seen_atom = True
         elif not seen_atom:
             header.append(line)
         else:
             trailer.append(line)
 
-    if order == sorted(order):
-        return  # already alphabetical
-
     out = list(header)
     serial = 0
-    for chain_id in sorted(blocks):
+    for chain_id in sorted(blocks, key=PDB_CHAIN_CHARS.find):
+        last_atom = None
         for line in blocks[chain_id]:
             if line.startswith("ANISOU"):
                 s = serial  # ANISOU shares the serial of its preceding atom
             else:
                 serial += 1
                 s = serial
+                last_atom = line
             out.append(f"{line[:6]}{s:>5}{line[11:]}")
+        # Terminate polymer chains (those carrying ATOM records) with a TER.
+        if last_atom is not None and last_atom.startswith("ATOM"):
+            serial += 1
+            out.append(_make_ter(serial, last_atom))
     out.extend(trailer)
 
     with open(pdb_path, "w") as f:
         f.writelines(out)
+
+
+def reorder_cif_chains(cif_path):
+    """Reorder atom records so chains appear alphabetically (A, B, C, D) and
+    renumber _atom_site.id so the serials stay monotonic.
+
+    boltz groups chain copies by entity, so an A2B2 complex comes out as
+    A, C, B, D, whereas the other models emit A, B, C, D. Reorder the chain
+    blocks to match. The mmcif counterpart of reorder_pdb_chains, minus the
+    TER regeneration -- mmcif has no TER records. Chain labels are left exactly
+    as boltz wrote them (A-Z, then AA, BA, ... past 'Z'); only record order and
+    atom ids change.
+
+    Only the atom records move: every other chain-keyed category
+    (_struct_asym, _pdbx_poly_seq_scheme, _ma_qa_metric_local, ...) is an
+    unordered set per the mmcif spec, and nothing in a boltz model points back
+    at _atom_site.id, so renumbering the serials breaks no cross-reference.
+    """
+    import gemmi
+
+    # Edit the raw cif document rather than a parsed gemmi.Structure: boltz
+    # writes ModelCIF, and a Structure round-trip would drop its model-specific
+    # categories (the _ma_qa_metric_local pLDDTs among them).
+    doc = gemmi.cif.read_file(cif_path)
+    block = doc.sole_block()
+
+    # boltz writes auth_asym_id and label_asym_id identically; group on auth,
+    # the one that becomes the chain column if the model is later made a pdb.
+    loop = chain_col = None
+    for tag in ("_atom_site.auth_asym_id", "_atom_site.label_asym_id"):
+        candidate = block.find_loop(tag).get_loop()
+        if candidate is not None:
+            loop, chain_col = candidate, candidate.tags.index(tag)
+            break
+    if loop is None:
+        # No _atom_site loop -- a single-atom model is written as key/value
+        # pairs instead. Either way there is nothing to reorder.
+        return
+
+    width = loop.width()
+    rows = [loop.values[i * width : (i + 1) * width] for i in range(loop.length())]
+
+    # Sort on boltz's own label sequence (A-Z, then AA, BA, ...) rather than
+    # lexicographically, so chain AA follows Z instead of landing after A. The
+    # sort is stable, so atoms keep their original order within a chain.
+    def chain_key(chain_id):
+        try:
+            return (0, CIF_CHAIN_CHARS.index(chain_id))
+        except ValueError:
+            return (1, chain_id)
+
+    rows.sort(key=lambda row: chain_key(row[chain_col]))
+
+    if "_atom_site.id" in loop.tags:
+        id_col = loop.tags.index("_atom_site.id")
+        for serial, row in enumerate(rows, start=1):
+            row[id_col] = str(serial)
+
+    # set_all_values takes one list per column, so transpose back.
+    loop.set_all_values([list(column) for column in zip(*rows)])
+    doc.write_file(cif_path)
 
 
 def rename_output_dir(output_dir):
@@ -339,13 +471,31 @@ def main(data_yaml, boltz2_yaml):
                 }
             )
 
-            ## Copy output pdb files to common directory with seed info in filename
-            shutil.copy(
-                f"{prediction_dir}/{name}_model_{i}.pdb",
-                f"{output_dir}/common/{name}_seed_{seed}_sample_{i}.pdb",
-            )
-            fix_pdb_chain_ids(f"{output_dir}/common/{name}_seed_{seed}_sample_{i}.pdb")
-            reorder_pdb_chains(f"{output_dir}/common/{name}_seed_{seed}_sample_{i}.pdb")
+            ## Copy the output model into the common dir with seed info in the
+            ## filename. boltz writes .pdb or .cif depending on output_format;
+            ## either way the chains are reordered alphabetically. A .cif keeps
+            ## boltz's own chain labels, while a .pdb also needs its 2-char
+            ## labels collapsed to fit the single chain column (>62 chains
+            ## cannot be written as a standard PDB at all).
+            stem = f"{name}_seed_{seed}_sample_{i}"
+            if boltz_config["output_format"] == "mmcif":
+                pred_cif = f"{prediction_dir}/{name}_model_{i}.cif"
+                common_cif = f"{output_dir}/common/{stem}.cif"
+                shutil.copy(pred_cif, common_cif)
+                reorder_cif_chains(common_cif)
+            else:  # output_format == "pdb"
+                common_pdb = f"{output_dir}/common/{stem}.pdb"
+                shutil.copy(f"{prediction_dir}/{name}_model_{i}.pdb", common_pdb)
+                if fix_pdb_chain_ids(common_pdb):
+                    reorder_pdb_chains(common_pdb)
+                else:
+                    os.remove(common_pdb)
+                    print(
+                        f"[boltz] warning: {stem}: model has more than "
+                        f"{len(PDB_CHAIN_CHARS)} chains; cannot write a standard "
+                        f"PDB and boltz was run with output_format=pdb (no cif to "
+                        f"keep). Skipped."
+                    )
     df = pd.DataFrame(csv_rows)
     df.sort_values(by=["ranking_score"], inplace=True, ascending=False)
     df.to_csv(f"{output_dir}/common/{name}_results_summary.csv", index=False)

@@ -1,5 +1,6 @@
-import os
+import os, sys
 import json
+import shutil
 import argparse
 import pandas as pd
 import numpy as np
@@ -7,6 +8,12 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import string
 import gemmi
+
+COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "common")
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+from chain_utils import PDB_CHAIN_CHARS
+
 
 def load_json(file_path):
     if not os.path.exists(file_path):
@@ -22,6 +29,11 @@ def cif_to_pdb_with_seedname(cif_path):
     Example:
     H1106_sample_0.cif
     → H1106_seed_101_sample_0.pdb
+
+    Chains are relabeled to single-character ids in the order they appear
+    (A-Z, a-z, 0-9), matching af3_confidence.py; chain order is preserved.
+    Models with more than 62 chains cannot be written as PDB, so the cif is
+    copied to the unified name instead and None is returned.
     """
 
     if not os.path.isfile(cif_path):
@@ -48,8 +60,29 @@ def cif_to_pdb_with_seedname(cif_path):
     new_name = f"{target_name}_{seed_name}_{sample_part}.pdb"
     pdb_path = os.path.join(dir_path, new_name)
 
-    # save pdb
+    # relabel chains to single-char ids (A-Z, a-z, 0-9) in chain order, then
+    # save pdb. A PDB has a single chain column, so a model with >62 chains
+    # cannot be written -- copy the cif to the unified name instead.
     structure = gemmi.read_structure(str(cif_path))
+    if len(structure) == 0:
+        raise ValueError(f"No model found in {cif_path}")
+
+    chains = list(structure[0])
+    if len(chains) > len(PDB_CHAIN_CHARS):
+        fallback_cif = os.path.join(
+            dir_path, f"{target_name}_{seed_name}_{sample_part}.cif"
+        )
+        shutil.copyfile(cif_path, fallback_cif)
+        print(
+            f"[WARN] {target_name}_{seed_name}_{sample_part}: model has more "
+            f"than {len(PDB_CHAIN_CHARS)} chains; cif->pdb conversion not "
+            f"possible. Copied cif to {fallback_cif} instead."
+        )
+        return None
+
+    for new_chain_name, chain in zip(PDB_CHAIN_CHARS, chains):
+        chain.name = new_chain_name
+
     structure.write_pdb(pdb_path)
 
     return pdb_path
@@ -139,9 +172,9 @@ def extract_ca_data_from_cif(cif_path):
 def plot_pae_matrix(ax, pae_data, breaks, title):
     pae = np.array(pae_data)
     num_res = pae.shape[0]
-    
+
     im = ax.imshow(pae, cmap="bwr", vmin=0, vmax=30, extent=(0, num_res, num_res, 0))
-    
+
     ax.set_xlim(0, num_res)
     ax.set_ylim(num_res, 0)
     ax.set_aspect("equal")
@@ -150,21 +183,8 @@ def plot_pae_matrix(ax, pae_data, breaks, title):
         ax.axvline(x=b, color="black", linewidth=1.0)
         ax.axhline(y=b, color="black", linewidth=1.0)
 
-    chain_boundaries = [0] + list(breaks) + [num_res]
-    ytick_positions = []
-    ytick_labels = []
-    
-    for i in range(len(chain_boundaries) - 1):
-        start = chain_boundaries[i]
-        end = chain_boundaries[i+1]
-        ytick_positions.append((start + end) / 2)
-        ytick_labels.append(string.ascii_uppercase[i])
-
-    ax.set_yticks(ytick_positions)
-    ax.set_yticklabels(ytick_labels, fontsize=10, fontweight='bold')
-    
     ax.set_title(title, fontsize=9)
-    
+
     return im
 
 def process_protenix_results(base_dir, method):

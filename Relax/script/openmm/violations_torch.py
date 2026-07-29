@@ -55,6 +55,18 @@ def _build_atom14_tables():
 
 _ATOM14_MASK, _ATOM14_RADIUS, _RESNAME_ATOM_TO_IDX14 = _build_atom14_tables()
 
+# amber/GLYCAM protonation & linkage variants share their parent residue's
+# heavy-atom names; normalize to the standard 3-letter code so they get real
+# atom14 slots. Otherwise they fall through to UNK (empty slot map): the peptide
+# bonds flanking a glycosylated Asn (renamed NLN) go unchecked, and a CYX-CYX
+# disulfide would even be miscounted as an inter-residue clash.
+_RESNAME_ALIASES = {
+    "NLN": "ASN",                               # N-linked Asn (GLYCAM)
+    "HIE": "HIS", "HID": "HIS", "HIP": "HIS",   # Amber His protonation states
+    "CYX": "CYS", "CYM": "CYS",                 # disulfide / deprotonated Cys
+    "ASH": "ASP", "GLH": "GLU", "LYN": "LYS",   # protonated / neutral variants
+}
+
 # Within-residue lower/upper bounds (21, 14, 14)
 _BOUNDS = rc.make_atom14_dists_bounds(
     overlap_tolerance=1.5,
@@ -104,7 +116,9 @@ def _topology_to_atom14(pdb, positions, device):
     res_names = []
 
     for i, res in enumerate(residues):
-        resname = res.name
+        # normalize amber/GLYCAM variants (NLN, HIE, CYX, ...) to their parent so
+        # the PRO/CYS checks and atom14 slotting below see the standard name.
+        resname = _RESNAME_ALIASES.get(res.name, res.name)
         res_names.append(resname)
         if resname in rc.restype_3to1:
             rt = rc.restype_order[rc.restype_3to1[resname]]

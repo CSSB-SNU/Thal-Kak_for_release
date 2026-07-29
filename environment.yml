@@ -1,4 +1,4 @@
-# Unified Thal-Kak env: orchestrator + Amber (OpenMM) relaxation +
+# Unified Thal-Kak env: orchestrator + OpenMM relaxation +
 # structure prediction models (boltz, chai-1, esmfold2, protenix) +
 # ColabFold MSA generation.
 #
@@ -18,9 +18,19 @@ dependencies:
   - python=3.12
   - pip
   - hmmer=3.4.0              # MSA tooling
-  - openmm=8.4.0             # Amber relax (CUDA build pulled by cuda-version pin below)
-  - pdbfixer=1.12.0          # PDB cleanup before amber minimization
+  # bioconda's hmmer links libopenblas.so.0 directly but declares only gsl, so
+  # libopenblas can be absent and nhmmer/hmmbuild then fail to load (RNA MSA dies).
+  # Request the library itself -- do NOT pin the BLAS variant (libblas=*=*openblas):
+  # ambertools -> mdtraj -> pytables -> numexpr requires libblas *mkl, so pinning the
+  # variant makes openff-toolkit unsolvable. MKL and libopenblas coexist fine here.
+  - libopenblas
+  - openmm=8.4.0             # openmm relax (CUDA build pulled by cuda-version pin below)
+  - pdbfixer=1.12.0          # PDB cleanup before openmm minimization
   - cuda-version=12.6        # match torch cu126 wheels for openmm/CUDA plugins
+  - rdkit=2024.09.6          # openff-toolkit dep + chai (~=2024.9.5) compatible
+  - ambertools=24.8          # antechamber/GAFF backend for openmmforcefields
+  - openff-toolkit=0.16.10   # openff Molecule + GAFF/SMIRNOFF template generators
+  - openmmforcefields=0.15.1 # GAFF/SMIRNOFF template generators for ligands
   # ColabFold MSA + template search binaries (bioconda).
   - kalign2=2.04
   - hhsuite=3.3.0
@@ -35,7 +45,6 @@ dependencies:
       - pyyaml==6.0.2
       - biopython==1.84
       - gemmi==0.7.5              # esmfold2 CIF parsing needs 0.7+; chai/protenix runtime OK
-      - rdkit==2024.9.6           # chai (~=2024.9.5) compatible
       - pandas==2.3.3             # chai (~=2.1) compatible
       - matplotlib==3.10.9
       - tqdm==4.68.1

@@ -1,3 +1,16 @@
+import string
+
+PDB_CHAIN_CHARS = string.ascii_uppercase + string.ascii_lowercase + "0123456789"
+
+# Chain labels for CIF / fasta entity names: A-Z, then two-letter ids that cycle
+# the first character fastest (AA, BA, ..., ZA, AB, BB, ..., ZB, ..., ZZ), so
+# complexes with more than 26 chains still get unique labels. Indexing
+# string.ascii_uppercase avoids chr(ord("A") + n), which yields '[', ']', etc.
+# once the offset passes 'Z'.
+CIF_CHAIN_CHARS = list(string.ascii_uppercase) + [
+    a + b for b in string.ascii_uppercase for a in string.ascii_uppercase
+]
+
 def assign_chain_indices(copies, types):
     """Assign chain indices to entity copies in interleaved (round-robin) order.
 

@@ -3,7 +3,7 @@ import argparse
 
 """make query fasta with casp fasta file considering proper stoichiometry"""
 
-NUCLEIC_ACIDS = set("ACGTU")
+NUCLEIC_ACIDS = set("ACGTUN")
 
 
 def is_nucleic_acid(seq):

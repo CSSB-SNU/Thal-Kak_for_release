@@ -16,7 +16,7 @@ COMMON_DIR = os.path.join(
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 from process_template import generate_m8_from_hhsearch
-from chain_utils import assign_chain_indices
+from chain_utils import assign_chain_indices, CIF_CHAIN_CHARS
 
 
 # ============================================================================
@@ -67,15 +67,13 @@ def load_m8(m8_path):
 # 3. Sequence helpers
 # ============================================================================
 
-
-def detect_sequence_type(sequence):
-    seq = sequence.upper()
-    if "U" in seq and "T" not in seq:
+def detect_sequence_type(s_type):
+    if s_type == "rna":
         return "rnaSequence"
-    if all(c in "ATGC" for c in seq) and len(seq) > 0:
+    elif s_type == "dna":
         return "dnaSequence"
-    return "proteinChain"
-
+    elif s_type == "protein":
+        return "proteinChain"
 
 def extract_query_sequence(a3m_path):
     """Read the first (query) sequence from a FASTA or a3m file."""
@@ -412,7 +410,6 @@ def main(args):
             tpl_lookup.setdefault(q_id, []).append((cif_p, t_id))
 
     # ---- Build per-entity JSON entries ------------------------------------
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     a3m_copies = [item.get("copy", 1) for item in a3m_list]
     a3m_types = [
         0 if item.get("type", "protein") == "protein" else 1 for item in a3m_list
@@ -429,8 +426,8 @@ def main(args):
             entity_info.append(None)
             continue
 
-        base_chain_id = alphabet[chains_per_entity[entity_idx][0]]
-        entity_type = detect_sequence_type(query_seq)
+        base_chain_id = CIF_CHAIN_CHARS[chains_per_entity[entity_idx][0]]
+        entity_type = detect_sequence_type(item["type"])
         query_len = len(query_seq)
 
         # ---- Build AF3-style template objects for this chain --------------
@@ -541,24 +538,29 @@ def main(args):
             }
         )
 
-    # ---- Emit JSON entries (interleaved, count=1 per entry) ---------------
+    # ---- Emit JSON entries (count=1 per entry) ----------------------------
+    # Protenix assigns chain ids sequentially over the entries below, so emit
+    # one entry per chain following the order in chains_per_entity.
+    chain_order = []
+    for entity_idx, chain_idxs in enumerate(chains_per_entity):
+        for chain_idx in chain_idxs:
+            chain_order.append((chain_idx, entity_idx))
+    chain_order.sort()
+
     json_sequences = []
-    max_copies = max((e["copy"] for e in entity_info if e is not None), default=0)
-    for r in range(max_copies):
-        for e in entity_info:
-            if e is None or r >= e["copy"]:
-                continue
-            json_sequences.append(
-                {
-                    e["type"]: {
-                        "sequence": e["sequence"],
-                        "count": 1,
-                        "pairedMsaPath": e["paired_path"],
-                        "unpairedMsaPath": e["unpaired_path"],
-                        "templatesPath": e["templates_json_path"],
-                    }
+    for _, entity_idx in chain_order:
+        e = entity_info[entity_idx]
+        json_sequences.append(
+            {
+                e["type"]: {
+                    "sequence": e["sequence"],
+                    "count": 1,
+                    "pairedMsaPath": e["paired_path"],
+                    "unpairedMsaPath": e["unpaired_path"],
+                    "templatesPath": e["templates_json_path"],
                 }
-            )
+            }
+        )
 
     # ---- Ligand entries ---------------------------------------------------
     for lig_idx, lig_entry in enumerate(ligand_list):

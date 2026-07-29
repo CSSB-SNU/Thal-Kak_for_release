@@ -1,4 +1,4 @@
-import argparse, yaml, os, csv, re, glob, shutil
+import argparse, yaml, os, csv, re, glob, shutil, logging, subprocess, sys, io, contextlib
 from collections import namedtuple
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -127,11 +127,12 @@ def run_full(args):
 
     # Relax the top-5 in place.
     print(f"Running relaxation ({args.relax}) on top-5...")
-    relax_dir = relaxation(top5_dir, args.relax)
+    relax_dir = relaxation(top5_dir, args.relax, args.relax_config)
     print(f"Relaxation complete: {relax_dir}")
 
 
 def cli():
+    setup_logging()
     parser = argparse.ArgumentParser(description="Thal-Kak structure prediction pipeline")
     subparsers = parser.add_subparsers(dest="mode", required=True, help="Pipeline mode")
 
@@ -147,7 +148,7 @@ def cli():
         help="Structure prediction model",
     )
     p_full.add_argument(
-        "--relax", type=str, required=True, choices=["none", "amber"],
+        "--relax", type=str, required=True, choices=["none", "openmm"],
         help="Relaxation method",
     )
     p_full.add_argument(
@@ -175,6 +176,10 @@ def cli():
     p_full.add_argument(
         "--ligand_yaml", type=str, default=None,
         help="Optional YAML file with a 'ligand' list to merge into the data config",
+    )
+    p_full.add_argument(
+        "--relax_config", type=str, default=None,
+        help="Relax config yaml (default: examples/{relax}.yaml)",
     )
 
     # msa
@@ -215,8 +220,12 @@ def cli():
         "--decoy_dir", type=str, required=True, help="Directory containing PDB files"
     )
     p_relax.add_argument(
-        "--relax", type=str, required=True, choices=["none", "amber"],
+        "--relax", type=str, required=True, choices=["none", "openmm"],
         help="Relaxation method",
+    )
+    p_relax.add_argument(
+        "--relax_config", type=str, default=None,
+        help="Relax config yaml (default: examples/{relax}.yaml)",
     )
 
     args = parser.parse_args()
@@ -234,7 +243,124 @@ def cli():
             structure_prediction(args)
         case "relax":
             from Relax.relaxation import relaxation
-            relaxation(args.decoy_dir, args.relax)
+            relaxation(args.decoy_dir, args.relax, args.relax_config)
+
+
+# =============================== logging ===============================
+# Only the thalkak.* tree uses this setup, so third-party INFO (numexpr, jax, ...)
+# stays out. Tag column = stage for INFO, level for WARNING+. External tools are
+# funnelled through the same logger via run_logged (subprocess) / log_stream.
+
+_PKG = "thalkak"
+_SUB = "  │ "
+_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+
+class _Fmt(logging.Formatter):
+    def format(self, record):
+        record.tag = (record.levelname if record.levelno >= logging.WARNING
+                      else record.name.rsplit(".", 1)[-1])
+        return super().format(record)
+
+
+def setup_logging(level=logging.INFO):
+    """Configure the thalkak.* logger to stdout. Idempotent."""
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")  # child tools stream line-by-line
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+    pkg = logging.getLogger(_PKG)
+    if pkg.handlers:
+        return pkg
+    pkg.setLevel(level)
+    pkg.propagate = False
+    h = logging.StreamHandler(sys.stdout)
+    h.setFormatter(_Fmt("%(asctime)s | %(tag)-9s | %(message)s", _DATEFMT))
+    pkg.addHandler(h)
+    return pkg
+
+
+def get_logger(name):
+    """Stage logger; `name` (e.g. 'msa') fills the tag column."""
+    return logging.getLogger(f"{_PKG}.{name}")
+
+
+def section(log, title, width=60):
+    log.info(f" {title} ".center(width, "="))
+
+
+def _emit(log, level, line):
+    """Log one line of external-tool output: keep only the final \\r-overwrite
+    (tqdm bars), strip trailing space, indent under _SUB, skip if blank."""
+    line = line.rsplit("\r", 1)[-1].rstrip()
+    if line:
+        log.log(level, "%s%s", _SUB, line)
+
+
+def run_logged(cmd, log=None, check=True, **kw):
+    """subprocess.run-like, but stream the merged stdout+stderr through `log` one
+    timestamped line at a time. Returns exit code; raises on non-zero if `check`."""
+    log = log or get_logger("subprocess")
+    shell = isinstance(cmd, str)
+    log.info("$ %s", cmd if shell else " ".join(map(str, cmd)))
+    proc = subprocess.Popen(cmd, shell=shell, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, bufsize=1, **kw)
+    for line in proc.stdout:
+        _emit(log, logging.INFO, line)
+    code = proc.wait()
+    if code:
+        log.error("↳ command exited with status %d", code)
+        if check:
+            raise subprocess.CalledProcessError(code, cmd)
+    return code
+
+
+def log_lines(text, log=None, level=logging.INFO):
+    """Emit already-captured text line-by-line (parallel jobs, kept contiguous)."""
+    log = log or get_logger("subprocess")
+    for line in (text or "").splitlines():
+        _emit(log, level, line)
+
+
+class _LineWriter(io.TextIOBase):
+    """File-like shim: forward complete lines to a logger via _emit; delegate
+    fileno/isatty to the real stream so libraries probing stdout don't crash."""
+    def __init__(self, log, level, stream):
+        self._log, self._level, self._stream, self._buf = log, level, stream, ""
+
+    def write(self, s):
+        self._buf += s
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            _emit(self._log, self._level, line)
+        return len(s)
+
+    def flush(self):
+        _emit(self._log, self._level, self._buf)
+        self._buf = ""
+
+    def fileno(self):
+        return self._stream.fileno()
+
+    def isatty(self):
+        return False
+
+
+@contextlib.contextmanager
+def log_stream(log=None, level=logging.INFO):
+    """Route sys.stdout/stderr through `log` inside the block (imported in-process
+    steps: boltz/chai/esmfold/protenix). C-level fd writes still print raw."""
+    log = log or get_logger("subprocess")
+    out, err = _LineWriter(log, level, sys.stdout), _LineWriter(log, level, sys.stderr)
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            yield
+        finally:
+            out.flush()
+            err.flush()
+
+# =======================================================================
 
 
 if __name__ == "__main__":

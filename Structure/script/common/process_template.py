@@ -200,7 +200,6 @@ def generate_m8_from_hhsearch(num_map, a3m_list, template_list, output_dir):
     H1140_A  template1_A  99.5  150  0  0  1  150  1  150  1e-50  200.0
     H1140_B  template1_B  98.0  150  3  0  1  150  1  150  1e-45  180.0
     """
-    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     hits_fp = output_dir / "hits.m8"
     # Reset any prior content so re-runs start fresh.
     if hits_fp.exists():
