@@ -15,8 +15,7 @@ top-5 models based on the predictor's own confidence score, and relaxes them.
 
 > Click the badge, choose a **GPU** runtime (`Runtime → Change runtime type → GPU`),
 > then `Runtime → Run all`. The environment installs in ~3 min (pixi); the
-> first run also downloads model weights (a few minutes), which the optional
-> Drive cache reuses in later sessions.
+> first run also downloads model weights (a few minutes).
 
 ## Pipeline overview
 
