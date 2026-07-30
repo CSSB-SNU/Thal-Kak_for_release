@@ -14,8 +14,9 @@ top-5 models based on the predictor's own confidence score, and relaxes them.
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CSSB-SNU/Thal-Kak_for_release/blob/main/Thalkak.ipynb)
 
 > Click the badge, choose a **GPU** runtime (`Runtime → Change runtime type → GPU`),
-> then `Runtime → Run all`. The first run installs the full environment and
-> downloads model weights, so expect ~20–30 min before results appear.
+> then `Runtime → Run all`. The environment installs in ~3 min (pixi); the
+> first run also downloads model weights (a few minutes), which the optional
+> Drive cache reuses in later sessions.
 
 ## Pipeline overview
 
