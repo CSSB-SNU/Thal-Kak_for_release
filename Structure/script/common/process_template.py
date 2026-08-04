@@ -1,3 +1,47 @@
+# Thal-Kak
+# Copyright 2026 CSSB, Seoul National University
+#
+# Licensed under the Apache License, Version 2.0 (see LICENSE).
+#
+# ---------------------------------------------------------------------------
+# Third-party attribution (see also NOTICE)
+#
+# build_hhsearch_db() is derived from ColabFold's mk_hhsearch_db()
+# (colabfold/batch.py, https://github.com/sokrypton/ColabFold):
+#
+#   MIT License
+#
+#   Copyright (c) 2021 Sergey Ovchinnikov
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+#   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+# generate_m8_from_hhsearch() invokes the hhsearch binary using the same
+# command-line pattern as AlphaFold's HHSearch.query()
+# (alphafold/data/tools/hhsearch.py,
+# https://github.com/google-deepmind/alphafold), Copyright 2021 DeepMind
+# Technologies Limited, licensed under the Apache License, Version 2.0
+# (http://www.apache.org/licenses/LICENSE-2.0). No AlphaFold source is
+# reproduced here.
+#
+# parse_hhr_to_m8_rows() is an independent implementation.
+# ---------------------------------------------------------------------------
+
 import subprocess
 import shutil
 from pathlib import Path
@@ -9,6 +53,14 @@ from Bio.SeqUtils import seq1
 from collections import defaultdict
 
 
+# Derived from ColabFold's mk_hhsearch_db() (MIT; see file header).
+# Modifications: per-chain selection via chain_filter; .pdb files parsed
+# directly with PDBParser instead of being converted to mmCIF; mmCIF
+# validation/repair dropped; insertion-coded residues retained rather than
+# raising; multi-model files use model 0 with a warning rather than raising;
+# hetero/solvent residues skipped; parse failures warned and skipped;
+# residue_constants.restype_3to1 replaced with Bio.SeqUtils.seq1; per-entry
+# sequences returned to the caller.
 def build_hhsearch_db(template_dir, chain_filter=None):
     """Build pdb70 HH-suite database from CIF/PDB files in template_dir.
 
@@ -191,6 +243,10 @@ def parse_hhr_to_m8_rows(hhr_text):
     return results
 
 
+# Original to this project. The hhsearch subprocess call uses the tool's
+# documented -i/-d/-o/-maxseq interface, the same invocation pattern as
+# AlphaFold's HHSearch.query() (Apache 2.0; see file header). Chain mapping,
+# template grouping, and m8 row emission are specific to this pipeline.
 def generate_m8_from_hhsearch(num_map, a3m_list, template_list, output_dir):
     """
     Generate an m8 file using hhsearch with pre-generated MSA (a3m) profiles.

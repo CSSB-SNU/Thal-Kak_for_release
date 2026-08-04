@@ -62,6 +62,26 @@ prominent notice has been added to the affected files (Apache-2.0 Sec. 4(b)).
      follows OpenMMDL's GLYCAM residue/linkage/atom-name tables (reimplemented
      on OpenMM Topology objects). See each file header for the full MIT notice.
 
+6. ColabFold-derived code (Sergey Ovchinnikov)
+   - File:    Structure/script/common/process_template.py
+   - Source:  ColabFold (https://github.com/sokrypton/ColabFold),
+              colabfold/batch.py
+   - License: MIT License
+   - Copyright (c) 2021 Sergey Ovchinnikov.
+   - build_hhsearch_db() is derived from ColabFold's mk_hhsearch_db(), and is
+     MODIFIED by CSSB Thal-Kak (2026): per-chain selection via chain_filter;
+     .pdb files parsed directly with PDBParser instead of being converted to
+     mmCIF; mmCIF validation/repair dropped; insertion-coded residues retained
+     rather than raising; multi-model files use model 0 rather than raising;
+     hetero/solvent residues skipped; residue_constants.restype_3to1 replaced
+     with Bio.SeqUtils.seq1; per-entry sequences returned to the caller.
+     See the file header for the full MIT notice.
+   - The remainder of the file — parse_hhr_to_m8_rows() and
+     generate_m8_from_hhsearch() — is original to this work. The latter drives
+     the hhsearch binary using the same documented -i/-d/-o/-maxseq invocation
+     as AlphaFold's HHSearch.query() (Apache License 2.0, Copyright 2021
+     DeepMind Technologies Limited); no AlphaFold source is reproduced.
+
 ================================================================================
 Third-party runtime dependencies (NOT redistributed; installed via pip/conda)
 ================================================================================
