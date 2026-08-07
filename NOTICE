@@ -112,5 +112,7 @@ absent, the pipeline downloads it at runtime from a third-party mirror
 (huggingface.co/TMF001/pxdesign-weights) and verifies it against a pinned
 SHA-256 before loading. That mirror is not affiliated with the Protenix
 authors; the SHA-256 check ensures the fetched file is byte-identical to the
-known-good checkpoint and refuses to load anything else. Users should obtain
-the weights from an official source where one is available.
+known-good checkpoint and refuses to load anything else. Protenix's code and
+model parameters are both released under the Apache License 2.0 (per the
+Protenix README), so redistribution of the checkpoint is permitted; users may
+substitute an official copy where one is available.
