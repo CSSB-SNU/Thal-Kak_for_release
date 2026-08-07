@@ -105,3 +105,12 @@ predictors above are distributed by their respective providers under their own
 terms, which may be more restrictive than the code licenses listed here (e.g.,
 research/non-commercial use). Users are responsible for complying with the
 applicable weight licenses.
+
+The Protenix "protenix-v2" checkpoint is not currently served by its official
+endpoint (which returns HTTP 403 for public requests). When the checkpoint is
+absent, the pipeline downloads it at runtime from a third-party mirror
+(huggingface.co/TMF001/pxdesign-weights) and verifies it against a pinned
+SHA-256 before loading. That mirror is not affiliated with the Protenix
+authors; the SHA-256 check ensures the fetched file is byte-identical to the
+known-good checkpoint and refuses to load anything else. Users should obtain
+the weights from an official source where one is available.

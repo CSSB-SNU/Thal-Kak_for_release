@@ -105,6 +105,14 @@ Each structure-prediction model downloads its own weights to its default cache
 location on first run (e.g. `~/.boltz` for Boltz-2, `~/.cache/huggingface` for
 ESMFold2).
 
+Protenix is an exception: its official `protenix-v2` checkpoint endpoint
+currently returns HTTP 403 for public requests. When the checkpoint is missing,
+the pipeline downloads it from a community mirror and verifies it against a
+pinned SHA-256 before use (a mismatch aborts the run). To supply your own copy
+instead, place `protenix-v2.pt` in the protenix checkpoint directory
+(`$PROTENIX_CHECKPOINT_DIR` if set, otherwise
+`Structure/submodules/protenix/checkpoint/`).
+
 The vendored model sources live under `Structure/submodules/` and were pulled in
 as git subtrees; see [readme/subtrees.yaml](readme/subtrees.yaml) for their
 upstream origins.
