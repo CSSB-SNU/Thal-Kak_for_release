@@ -3,6 +3,56 @@ from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# The protenix-v2 checkpoint is no longer served by the official endpoint
+# (it returns HTTP 403 AccessDenied for everyone). It is fetched from a
+# community mirror and verified against this SHA-256 before use: protenix
+# loads checkpoints with torch.load(weights_only=False), so an unverified
+# file could execute arbitrary code. A digest mismatch aborts the run.
+_PROTENIX_V2_MIRROR_URL = (
+    "https://huggingface.co/TMF001/pxdesign-weights/resolve/main/checkpoint/protenix-v2.pt"
+)
+_PROTENIX_V2_SHA256 = (
+    "8f931f9774a396b67033d0e58628e1834f4a1448165e04254b40a780b0c0d599"
+)
+
+
+def _sha256_of(path, chunk=1 << 20):
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _download_protenix_v2(checkpoint_path):
+    """Download the protenix-v2 checkpoint from the mirror, verify its
+    SHA-256, then move it into place. Raises RuntimeError on mismatch."""
+    import urllib.request
+
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    tmp_path = checkpoint_path + ".download"
+
+    def _progress(block_num, block_size, total_size):
+        if total_size > 0:
+            pct = min(100.0, block_num * block_size * 100.0 / total_size)
+            print(f"\r  downloading protenix-v2.pt ... {pct:5.1f}%", end="", flush=True)
+
+    print(f"protenix-v2 checkpoint not found; downloading from mirror to {checkpoint_path}")
+    urllib.request.urlretrieve(_PROTENIX_V2_MIRROR_URL, tmp_path, reporthook=_progress)
+    print()
+
+    digest = _sha256_of(tmp_path)
+    if digest != _PROTENIX_V2_SHA256:
+        os.remove(tmp_path)
+        raise RuntimeError(
+            f"protenix-v2 checkpoint failed SHA-256 verification (got {digest}, "
+            f"expected {_PROTENIX_V2_SHA256}); refusing to use it."
+        )
+    os.replace(tmp_path, checkpoint_path)
+    print("protenix-v2 checkpoint verified (SHA-256 match).")
+
 
 def structure_prediction(args):
     with open(args.data_config) as f:
@@ -98,11 +148,20 @@ def structure_prediction(args):
                 "--use_template", "true",
             ]
 
-            # Optional persistent checkpoint dir (e.g. a Drive-synced cache).
-            # Unset -> protenix uses its default under the submodule.
-            protenix_ckpt = os.environ.get("PROTENIX_CHECKPOINT_DIR")
-            if protenix_ckpt:
-                inference_argv += ["--load_checkpoint_dir", protenix_ckpt]
+            # protenix loads {load_checkpoint_dir}/{model_name}.pt. Default to
+            # the submodule's checkpoint dir (protenix's own default);
+            # PROTENIX_CHECKPOINT_DIR (e.g. a persistent cache) overrides it.
+            protenix_ckpt_dir = os.environ.get(
+                "PROTENIX_CHECKPOINT_DIR"
+            ) or os.path.join(protenix_root, "checkpoint")
+            inference_argv += ["--load_checkpoint_dir", protenix_ckpt_dir]
+
+            # protenix-v2 weights are no longer downloadable from the official
+            # endpoint (403); fetch + verify them from the mirror if absent.
+            if protenix_yaml["model_name"] == "protenix-v2":
+                v2_path = os.path.join(protenix_ckpt_dir, "protenix-v2.pt")
+                if not os.path.exists(v2_path):
+                    _download_protenix_v2(v2_path)
 
             min_size_test = protenix_yaml.get("data.msa.min_size.test")
             if min_size_test is not None:
